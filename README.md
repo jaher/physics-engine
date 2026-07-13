@@ -33,6 +33,14 @@ a physical test suite covering every layer.
 | + | — | **Non-Newtonian fluids** — weakly-compressible **SPH** (poly6/spiky/viscosity kernels, grid neighbour search, XSPH) with a *shear-rate-dependent* Herschel–Bulkley/power-law viscosity `μ(γ̇)` → shear-**thickening** (oobleck), shear-**thinning** (ketchup), **yield-stress**/Bingham (**lava**) and Newtonian fluids; two-way-coupled rigid balls, static cylinder obstacles, runtime emitters/drains | `sph.h` |
 | + | — | **Screen-space fluid surface** — particles → eye-space depth → bilateral smoothing → normal reconstruction → shaded liquid (glossy Fresnel or molten blackbody emissive); makes SPH read as a surface, not spheres | `demos/common/fluidsurf.h` |
 | + | — | **Framework parity** (vs Brax/Chrono/Gazebo/MuJoCo/ODE/PhysX/PyBullet/Webots/Unity — see [FEATURES.md](FEATURES.md)): capsules, raycasts, hinge/slider/fixed/distance/universal/gear joints + limits + motors + PD servos, heightfield terrain, CCD, contact events, triggers, kinematic bodies, RK4, raycast vehicle, character controller | `shapes.h`, `raycast.h`, `joints2.h`, `terrain.h`, `extras.h`, `vehicle.h`, `character.h` |
+| + | — | **Convex & mesh geometry** — arbitrary convex hulls (GJK boolean + closest-distance + EPA penetration), analytic cylinder & cone, static triangle-mesh collider with grid midphase | `collide_convex.h` |
+| + | — | **Articulated bodies** — Featherstone O(n) articulated-body algorithm in reduced (joint) coordinates for serial/tree chains of revolute/prismatic joints | `articulation.h` |
+| + | — | **Contact solver upgrade** — persistent up-to-4-point manifolds with warm-started impulses, `Material` + combine modes (Average/Min/Max/Multiply), rolling & spinning friction | `contacts.h`, `material.h` |
+| + | — | **Soft bodies & PBF** — co-rotational tetrahedral FEM deformables, cloth self-collision, position-based fluids | `softbody.h` |
+| + | — | **Soft constraints & fields** — CFM/ERP springy link, breakable joint, conveyor surfaces, wind/radial force fields, rigid hydrodynamics, backward-Euler implicit spring | `constraint2.h` |
+| + | — | **Scene queries & broad phases** — swept + overlap queries, speculative contacts, sweep-and-prune, dynamic AABB tree, state snapshot/restore | `query.h`, `broadphase2.h`, `serialize.h` |
+| + | — | **Robotics layer** — URDF/MJCF loader, IMU/lidar/contact-force sensors, recursive-Newton-Euler inverse dynamics, Jacobian IK, tendon/muscle actuators | `loader.h`, `robotics.h` |
+| + | — | **Advanced paradigms** — forward-mode autodiff → differentiable physics, island-parallel `std::thread` solver, approximate convex decomposition (V-HACD-lite) | `autodiff.h`, `parallel.h`, `decompose.h` |
 
 Include everything with `#include "phys/phys.h"`; the namespace is `phys`.  The
 cloth and hair modules (extensions beyond the book, driving the 3D demos) are in
@@ -52,7 +60,7 @@ bash tests/run_all.sh                                                  # or dire
 ## Verification
 
 Every layer is checked against analytic or known-physical results
-(`tests/*.cpp`, **179 assertions, all passing**):
+(`tests/*.cpp`, **434 assertions, all passing** — 18 suites):
 
 | Suite | What it proves |
 |-------|----------------|
@@ -64,6 +72,14 @@ Every layer is checked against analytic or known-physical results
 | `stacking` | interpenetrating boxes separate; a box comes to rest on a fixed box (box-box in the pipeline) |
 | `harmonics` | chain mode frequencies match `ω_n = 2√(k/m)·sin(nπ/2(P+1))`; a single mass gives `√(2k/m)`; modes are ordered; an undamped chain conserves energy; a tensioned chain gives a near-linear overtone series |
 | `sph` | the `μ(γ̇)` rheology thickens/thins/yields correctly; an SPH pool settles, conserves particle count and stays inside its box with no NaNs; a shear-thickening pool holds a dropped ball higher than water; runtime add/remove stays in sync and a cylinder ejects particles from its footprint |
+| `convex` | GJK boolean + distance and EPA penetration on convex hulls (aligned/offset/rotated); sphere & box rest on a triangle-mesh ramp; cylinder/cone vs plane |
+| `articulation` | a Featherstone pendulum's period = `2π√(I/mgl)`; released-link acceleration = `mgl/I`; a free 2-link chain conserves energy; a holding torque keeps a link static |
+| `contacts2` | material combine modes; a warm-started stack settles with less penetration in fewer iterations; rolling friction brings a rolling sphere to rest |
+| `softbody` | polar decomposition recovers rotation/identity; a dropped soft box squashes and rebounds keeping its volume; self-collision separates overlapping particles; PBF holds rest density |
+| `constraint2` | CFM softness lowers restoring force; a breakable joint fires exactly at its load; a conveyor drives a box to belt speed; hydrodynamic drag gives a bounded terminal velocity; the implicit spring stays stable where explicit diverges |
+| `query` | a swept sphere catches a target it would tunnel past; sweep-and-prune and the dynamic AABB tree match brute-force pairs; snapshot→restore is bitwise-exact |
+| `robotics` | URDF/MJCF parse to the right links/joints; IMU reads `g` when static; RNE gravity torque = `mgl`; Jacobian IK error decreases monotonically; lidar returns the expected ranges |
+| `advanced` | autodiff gradients match finite differences; the island-parallel solver is bit-identical to serial; an L-shape decomposes into convex pieces covering its area |
 | `leaf` | the oak mask is a proper silhouette with veins; a dropped leaf falls at bounded speed, drifts sideways (flutters) and keeps an orthonormal frame; an unlit leaf keeps its fuel while an ignited one burns down to nothing |
 
 The dashboard above is produced by `demos/demo.cpp` and shows, with no tuning:
@@ -89,6 +105,12 @@ modern-OpenGL pipeline (`demos/common/`): directional-light **shadow mapping**
 | `nonnewtonian3d` | the same heavy ball dropped into two SPH troughs — shear-thickening **oobleck** vs **water** (`phys::SPHFluid`): the oobleck's viscosity spikes under the impact's shear and absorbs the ball with barely a splash, while the water erupts in a crown. Drawn as a smooth screen-space surface ([`docs/nonnewtonian.mp4`](docs/nonnewtonian.mp4)) |
 | `lava3d` | **hyper-real lava** — a hot shear-thinning Bingham fluid (`phys::Rheology::lava`) poured down a tilted channel and flowing around a stone **cylinder**, splitting and rejoining in its wake; a per-particle temperature drives a molten blackbody glow (yellow-white vent → dark crust) over the screen-space fluid surface ([`docs/lava.mp4`](docs/lava.mp4)) |
 | `galton3d` | a **Galton board** (bean machine / quincunx): 170 balls stream through a triangular peg lattice and pile into the bins as a **bell curve**, all on the engine's rigid-body collision resolver (spheres, immovable peg spheres, box bins, half-space walls) — the central limit theorem in action ([`docs/galton.mp4`](docs/galton.mp4)) |
+| `articulation3d` | a Featherstone reduced-coordinate chain released from horizontal whips and swings as a multi-pendulum ([`docs/articulation.mp4`](docs/articulation.mp4)) |
+| `softbody3d` | tetrahedral co-rotational **FEM jelly cubes** of varying stiffness drop and squash — softest pancakes, stiffest holds its cube ([`docs/softbody.mp4`](docs/softbody.mp4)) |
+| `constraints3d` | a **conveyor belt** drags crates along and off the end into a pile while a crosswind field nudges them ([`docs/constraints.mp4`](docs/constraints.mp4)) |
+| `robotics3d` | a serial arm tracks a moving target with **Jacobian IK** while a **lidar** fan scans the surrounding pillars ([`docs/robotics.mp4`](docs/robotics.mp4)) |
+| `convex3d` | faceted **convex-hull gems** and cubes tumble and stack via GJK/EPA, with analytic cylinders and cones resting on the ground ([`docs/convex.mp4`](docs/convex.mp4)) |
+| `stack3d` | a brick **pyramid** stands stable on the warm-started manifold solver, then a heavy ball plows through and scatters the crates ([`docs/stacking.mp4`](docs/stacking.mp4)) |
 | `leaves3d` | **dozens of oak leaves spiralling down and burning** — tumbling-plate aerodynamics (`phys::FallingLeaf`) flutter each leaf down; it ignites partway and a combustion CA burns a glowing front across it, charring, curling and holing it before it is consumed, shedding smoke + embers. Leaves are **real oak-leaf photo textures** (a texture array; alpha defines each silhouette and drives the burn mask) ([`docs/burning_leaves.mp4`](docs/burning_leaves.mp4)) |
 | `wall3d` | a metal ball punches **through** a concrete wall, releasing only the fragments inside a jagged angle-modulated radius — the wall survives with a ragged hole |
 | `playground3d` | the framework-parity features in one scene: heightfield terrain, raycast **vehicle**, **character controller** hopping the dunes, motor-driven hinge **windmill**, **capsules** tumbling, and a **trigger zone** that lights up as the car passes ([`docs/playground.mp4`](docs/playground.mp4)) |

@@ -22,9 +22,11 @@
 // Collision detection (Part IV)
 #include "collide_coarse.h"
 #include "collide_fine.h"
+#include "collide_convex.h"   // GJK/EPA convex hulls, cylinder & cone, static triangle mesh
 
 // Contact physics (Part V)
-#include "contacts.h"
+#include "material.h"         // per-material friction/restitution + combine modes
+#include "contacts.h"         // + persistent warm-started manifolds, rolling/spin friction
 #include "joints.h"
 #include "world.h"
 
@@ -49,3 +51,22 @@
 #include "extras.h"
 #include "vehicle.h"
 #include "character.h"
+
+// Reduced-coordinate dynamics, soft bodies, soft constraints & fields
+#include "articulation.h"     // Featherstone O(n) articulated-body algorithm
+#include "softbody.h"         // co-rotational tet-FEM soft bodies, PBF fluids, cloth self-collision
+#include "constraint2.h"      // CFM/ERP soft link, breakable joint, conveyor, wind/radial fields, hydrodynamics, implicit spring
+
+// Scene queries, broad phases, serialization
+#include "query.h"            // swept + overlap scene queries, speculative contacts
+#include "broadphase2.h"      // sweep-and-prune + dynamic AABB tree
+#include "serialize.h"        // rigid-body state snapshot / restore
+
+// Robotics layer
+#include "loader.h"           // URDF/MJCF model loader
+#include "robotics.h"         // IMU/lidar/force sensors, RNE inverse dynamics, Jacobian IK, tendons
+
+// Advanced / paradigm
+#include "autodiff.h"         // forward-mode Dual → differentiable physics
+#include "parallel.h"         // island-parallel solver (needs -pthread)
+#include "decompose.h"        // approximate convex decomposition (V-HACD-lite)

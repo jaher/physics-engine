@@ -32,12 +32,27 @@ feature family. Everything marked ✅ new is compile-tested and covered by
 | Fracture / destruction | PhysX (blast), Chrono | ✅ | `fracture.h` |
 | Determinism | Brax, MuJoCo, ODE | ✅ (fixed-step, no hidden state) | — |
 
-**Not implemented** (noted honestly): Featherstone articulated-body dynamics
-(MuJoCo/PhysX reduced coordinates — our joints are maximal-coordinate iterative),
-convex-hull & triangle-mesh colliders, soft-body volumes/FEM (Chrono), fluids,
-GPU/autodiff simulation (Brax's differentiability), and the robotics middleware
-layers (ROS integration, sensors, SDF/URDF loading) of Gazebo/Webots — those are
-toolchain features rather than physics.
+## Second wave — closing the gap matrix
+
+A follow-up audit (`docs` gap analysis) drove a second round that implemented
+essentially every remaining capability family. All are header-only and covered by
+their own test suites (`bash tests/run_all.sh` → **434 assertions across 18 suites**).
+
+| Was missing in | Now here | Where | Test |
+|---|---|---|---|
+| Convex-hull & triangle-mesh colliders, cylinder/cone (all nine) | ✅ GJK + EPA convex-convex, cyl/cone vs plane, sphere/box vs trimesh | `collide_convex.h` | `convex` (36) |
+| Featherstone reduced-coordinate articulation (MuJoCo/PhysX/Bullet/Brax) | ✅ O(n) Articulated-Body Algorithm, revolute/prismatic serial-tree chains | `articulation.h` | `articulation` (6) |
+| Persistent multi-point manifolds + warm starting (Bullet/PhysX) | ✅ up-to-4-point cache, warm-started impulses, material combine modes, rolling/spin friction | `contacts.h`, `material.h` | `contacts2` (17) |
+| Volumetric FEM soft bodies (Chrono/PhysX5), cloth self-collision, PBF fluids | ✅ co-rotational tet-FEM, spatial-hash self-collision, position-based fluids | `softbody.h` | `softbody` (22) |
+| Soft constraints (CFM/ERP), breakable joints, conveyors, force fields, hydrodynamics, implicit integrator | ✅ all | `constraint2.h` | `constraint2` (45) |
+| Shape sweeps & overlap queries, SAP / dynamic-AABB-tree broad phases, serialization, speculative CCD | ✅ all | `query.h`, `broadphase2.h`, `serialize.h` | `query` (49) |
+| URDF/MJCF loading, IMU/lidar/force sensors, inverse dynamics, IK, tendons (Gazebo/Webots/MuJoCo) | ✅ all | `loader.h`, `robotics.h` | `robotics` (53) |
+| Differentiable physics (Brax/MJX), multithreaded solver, convex decomposition | ✅ forward-mode autodiff, island-parallel `std::thread` solver, V-HACD-lite | `autodiff.h`, `parallel.h`, `decompose.h` | `advanced` (27) |
+
+**Still not implemented** (need external toolchains, not header-only physics):
+**GPU execution** of the simulation (CUDA / a compute backend — the autodiff path
+is differentiable but runs on the CPU) and the **ROS/ROS2 middleware** bridge
+(the sensors, loaders and inverse dynamics exist; the pub/sub transport does not).
 
 Demo: `demos/playground3d.cpp` exercises the new features in one scene
 (heightfield + vehicle + character + motorized hinge windmill + capsules +
