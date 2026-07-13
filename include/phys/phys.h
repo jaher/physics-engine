@@ -57,6 +57,9 @@
 #include "softbody.h"         // co-rotational tet-FEM soft bodies, PBF fluids, cloth self-collision
 #include "constraint2.h"      // CFM/ERP soft link, breakable joint, conveyor, wind/radial fields, hydrodynamics, implicit spring
 
+// Compound (multi-shape) rigid bodies
+#include "compound.h"         // aggregate mass/COM/parallel-axis inertia over child primitives
+
 // Scene queries, broad phases, serialization
 #include "query.h"            // swept + overlap scene queries, speculative contacts
 #include "broadphase2.h"      // sweep-and-prune + dynamic AABB tree
@@ -70,3 +73,11 @@
 #include "autodiff.h"         // forward-mode Dual → differentiable physics
 #include "parallel.h"         // island-parallel solver (needs -pthread)
 #include "decompose.h"        // approximate convex decomposition (V-HACD-lite)
+
+// Electromagnetics
+#include "fdtd.h"             // FDTD solution of Maxwell's curl equations on a Yee grid (TM/TE)
+#include "mom.h"              // Method of Moments — thin-wire dipole EFIE (current, impedance, pattern)
+
+// Middleware
+#include "ros_bridge.h"       // ROS2-compatible messages + pub/sub graph (in-process; rclcpp-bindable)
+// GPU execution lives in include/phys/gpu/gpu_sph.cuh — a CUDA module, compiled with nvcc (not this header-only path).

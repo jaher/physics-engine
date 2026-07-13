@@ -41,6 +41,11 @@ a physical test suite covering every layer.
 | + | — | **Scene queries & broad phases** — swept + overlap queries, speculative contacts, sweep-and-prune, dynamic AABB tree, state snapshot/restore | `query.h`, `broadphase2.h`, `serialize.h` |
 | + | — | **Robotics layer** — URDF/MJCF loader, IMU/lidar/contact-force sensors, recursive-Newton-Euler inverse dynamics, Jacobian IK, tendon/muscle actuators | `loader.h`, `robotics.h` |
 | + | — | **Advanced paradigms** — forward-mode autodiff → differentiable physics, island-parallel `std::thread` solver, approximate convex decomposition (V-HACD-lite) | `autodiff.h`, `parallel.h`, `decompose.h` |
+| + | — | **GPU execution** — a CUDA massively-parallel SPH fluid (spatial-hash grid, thrust sort, on-GPU density/force/integrate); ~360k particles at ~0.18 ms/step (≈2·10⁹ particle-steps/s) on an RTX 5090 | `gpu/gpu_sph.cuh` |
+| + | — | **ROS/ROS2 bridge** — ROS2-compatible messages (Imu, LaserScan, JointState, Odometry, tf2) + node/publisher/subscription graph over an in-process transport, bindable to real `rclcpp` | `ros_bridge.h` |
+| + | — | **Compound (multi-shape) bodies** — one rigid body carrying several offset box/sphere primitives, with aggregate mass, centre of mass and the full parallel-axis inertia tensor computed for you | `compound.h` |
+| + | — | **Maxwell's equations (FDTD)** — Yee-grid leapfrog of the curl equations (TM & TE), PEC / absorbing boundaries; reproduces cavity resonances to 0.01% and wave propagation at the speed of light | `fdtd.h` |
+| + | — | **Antenna analysis (Method of Moments)** — thin-wire dipole EFIE (Pocklington, pulse basis, delta-gap feed): current distribution, input impedance (~73 Ω near resonance), radiation pattern | `mom.h` |
 
 Include everything with `#include "phys/phys.h"`; the namespace is `phys`.  The
 cloth and hair modules (extensions beyond the book, driving the 3D demos) are in
@@ -60,7 +65,7 @@ bash tests/run_all.sh                                                  # or dire
 ## Verification
 
 Every layer is checked against analytic or known-physical results
-(`tests/*.cpp`, **434 assertions, all passing** — 18 suites):
+(`tests/*.cpp`, **493 assertions, all passing** — 22 suites, incl. a CUDA GPU suite):
 
 | Suite | What it proves |
 |-------|----------------|
@@ -80,6 +85,10 @@ Every layer is checked against analytic or known-physical results
 | `query` | a swept sphere catches a target it would tunnel past; sweep-and-prune and the dynamic AABB tree match brute-force pairs; snapshot→restore is bitwise-exact |
 | `robotics` | URDF/MJCF parse to the right links/joints; IMU reads `g` when static; RNE gravity torque = `mgl`; Jacobian IK error decreases monotonically; lidar returns the expected ranges |
 | `advanced` | autodiff gradients match finite differences; the island-parallel solver is bit-identical to serial; an L-shape decomposes into convex pieces covering its area |
+| `gpu` (CUDA) | the GPU grid density equals the CPU brute-force reference; a dropped block stays finite/in-bounds near rest density; scales to >200k particles at <60 ms/step |
+| `ros` | the node graph delivers every published message to all subscribers; Imu/LaserScan/JointState round-trip; sim→ROS adapters build well-formed messages |
+| `compound` | a multi-shape body aggregates total mass, centre of mass and the parallel-axis inertia tensor (barbell/stack); child primitives land at the right COM-relative world offsets; it integrates as one rigid body |
+| `em` | FDTD reproduces a PEC-cavity eigenfrequency to within 0.01% of `(c/2)√((1/Lx)²+(1/Ly)²)` and a wavefront travels at 0.9975 c; the leapfrog stays energy-bounded for 3000 steps; the MoM dipole gives a near-resonant Rin ≈ 73 Ω, a symmetric feed-peaked current, capacitive→inductive reactance, and a radiation pattern with a deep axial null |
 | `leaf` | the oak mask is a proper silhouette with veins; a dropped leaf falls at bounded speed, drifts sideways (flutters) and keeps an orthonormal frame; an unlit leaf keeps its fuel while an ignited one burns down to nothing |
 
 The dashboard above is produced by `demos/demo.cpp` and shows, with no tuning:
@@ -111,6 +120,9 @@ modern-OpenGL pipeline (`demos/common/`): directional-light **shadow mapping**
 | `robotics3d` | a serial arm tracks a moving target with **Jacobian IK** while a **lidar** fan scans the surrounding pillars ([`docs/robotics.mp4`](docs/robotics.mp4)) |
 | `convex3d` | faceted **convex-hull gems** and cubes tumble and stack via GJK/EPA, with analytic cylinders and cones resting on the ground ([`docs/convex.mp4`](docs/convex.mp4)) |
 | `stack3d` | a brick **pyramid** stands stable on the warm-started manifold solver, then a heavy ball plows through and scatters the crates ([`docs/stacking.mp4`](docs/stacking.mp4)) |
+| `gpu_fluid3d` | a **GPU** SPH dam-break — ~905k fine particles simulated entirely on the RTX 5090 (`phys::gpu::GpuSPH`), read back and drawn as a screen-space fluid surface so the liquid reads as a continuous body, not spheres ([`docs/gpu_fluid.mp4`](docs/gpu_fluid.mp4)) |
+| `em2d` | **Maxwell + Method of Moments** — a MoM-solved dipole current drives a 2-D FDTD run; renders the radiating magnetic field **H** (expanding wavefronts) with the electric field **E** as flow arrows, beside the MoM figure-8 radiation pattern and cosine current distribution ([`docs/em_antenna.mp4`](docs/em_antenna.mp4)) |
+| `antenna3d` | **3-D dipole antenna** — the MoM far-field drawn as a glowing 3-D radiation-pattern surface with the wire glowing along its current and pattern-modulated wavefronts radiating out; the dipole length sweeps 0.5λ→1.5λ so the pattern morphs from the classic donut to a multi-lobe pattern ([`docs/antenna3d.mp4`](docs/antenna3d.mp4)) |
 | `leaves3d` | **dozens of oak leaves spiralling down and burning** — tumbling-plate aerodynamics (`phys::FallingLeaf`) flutter each leaf down; it ignites partway and a combustion CA burns a glowing front across it, charring, curling and holing it before it is consumed, shedding smoke + embers. Leaves are **real oak-leaf photo textures** (a texture array; alpha defines each silhouette and drives the burn mask) ([`docs/burning_leaves.mp4`](docs/burning_leaves.mp4)) |
 | `wall3d` | a metal ball punches **through** a concrete wall, releasing only the fragments inside a jagged angle-modulated radius — the wall survives with a ragged hole |
 | `playground3d` | the framework-parity features in one scene: heightfield terrain, raycast **vehicle**, **character controller** hopping the dunes, motor-driven hinge **windmill**, **capsules** tumbling, and a **trigger zone** that lights up as the car passes ([`docs/playground.mp4`](docs/playground.mp4)) |
