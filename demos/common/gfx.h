@@ -222,6 +222,33 @@ void main(){ vec3 T=normalize(vTan); vec3 V=normalize(uCamPos-vWorld); vec3 L=no
   float edge=1.0-abs(vSide); float alpha=smoothstep(0.0,0.5,edge)*0.95;   // soft strand edges
   frag=vec4(col,alpha); })";
 
+// paper: textured (a scanned map) + per-vertex char + emissive (the burning
+// front glows and blackens the print), two-sided. aUC = (u, v, char, emissive)
+static const char* VS_PAPER = R"(#version 330 core
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNormal; layout(location=2) in vec4 aUC;
+uniform mat4 uView,uProj,uLightSpace;
+out vec3 vWorld; out vec3 vNormal; out vec4 vLS; out vec2 vUV; out float vChar; out float vEmis;
+void main(){ vWorld=aPos; vNormal=aNormal; vLS=uLightSpace*vec4(aPos,1.0); vUV=aUC.xy; vChar=aUC.z; vEmis=aUC.w;
+  gl_Position=uProj*uView*vec4(aPos,1.0); })";
+static const char* FS_PAPER = R"(
+in float vChar; in float vEmis; uniform sampler2D uMap;
+void main(){ vec3 N=normalize(vNormal); if(!gl_FrontFacing) N=-N;
+  vec3 albedo=texture(uMap,vUV).rgb;
+  albedo=mix(albedo, vec3(0.05,0.045,0.04), vChar);        // char blackens the print
+  vec3 base=lighting(N,albedo,0.85,0.0,1.0);
+  vec3 ember=vec3(5.5,1.6,0.2);
+  base += ember*vEmis;
+  frag=vec4(base,1.0); })";
+
+// soft round particle (smoke + embers), camera-facing quads with rgba
+static const char* VS_PART = R"(#version 330 core
+layout(location=0) in vec3 aPos; layout(location=1) in vec4 aCol; layout(location=2) in vec2 aUV;
+uniform mat4 uView,uProj; out vec4 vCol; out vec2 vUV;
+void main(){ vCol=aCol; vUV=aUV; gl_Position=uProj*uView*vec4(aPos,1.0); })";
+static const char* FS_PART = R"(#version 330 core
+in vec4 vCol; in vec2 vUV; out vec4 frag;
+void main(){ float r=length(vUV*2.0-1.0); float a=vCol.a*smoothstep(1.0,0.15,r); frag=vec4(vCol.rgb,a); })";
+
 static const char* VS_FULL = R"(#version 330 core
 out vec2 vUV; void main(){ vec2 p=vec2((gl_VertexID<<1)&2, gl_VertexID&2); vUV=p; gl_Position=vec4(p*2.0-1.0,0.0,1.0); })";
 static const char* FS_TONE = R"(#version 330 core
@@ -236,7 +263,7 @@ struct Renderer {
     GLuint resFBO = 0, resTex = 0;                    // resolved HDR
     GLuint outFBO = 0, outTex = 0;                    // tonemapped RGB8
     GLuint shFBO = 0, shTex = 0;                      // shadow depth
-    GLuint pSolid, pGround, pCloth, pDepth, pHair, pTone;
+    GLuint pSolid, pGround, pCloth, pDepth, pHair, pTone, pPaper, pPart;
     GLuint emptyVAO = 0;
     glm::mat4 lightSpace;
     glm::vec3 lightDir = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.35f));
@@ -251,6 +278,8 @@ struct Renderer {
         pCloth = program(VS_SCENE, (full + FS_CLOTH).c_str());
         pDepth = program(VS_DEPTH, FS_DEPTH);
         pHair = program(VS_HAIR, FS_HAIR);
+        pPaper = program(VS_PAPER, (full + FS_PAPER).c_str());
+        pPart = program(VS_PART, FS_PART);
         pTone = program(VS_FULL, FS_TONE);
         glGenVertexArrays(1, &emptyVAO);
 

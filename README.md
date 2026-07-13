@@ -77,6 +77,7 @@ modern-OpenGL pipeline (`demos/common/`): directional-light **shadow mapping**
 | `hair3d`  | ~3400 simulated guide strands → **24k rendered strands** via clumping (`phys::Hair`), **Kajiya-Kay** anisotropic shading, gusting wind |
 | `clothesline3d` | garments pinned along a sagging string, hanging and swaying in a breeze (`phys::Cloth`) |
 | `destruction3d` | a solid block shattered by a wrecking ball — **granite** chunks or **wood** splinters (`phys::fracture`) |
+| `burn3d` | a hanging **antique world map** — a scan of the 1900 *Larousse* planisphere (public domain), texture-mapped onto the cloth — lit at one corner burns diagonally: a fire-propagation cellular automaton (`phys::BurningPaper`) drives a glowing ragged front that chars the print to black, with curling, holes and rising smoke + embers, while a light gusting breeze + travelling-wave `flutter` make the sheet undulate as it burns |
 | `wall3d` | a metal ball punches **through** a concrete wall, releasing only the fragments inside a jagged angle-modulated radius — the wall survives with a ragged hole |
 | `playground3d` | the framework-parity features in one scene: heightfield terrain, raycast **vehicle**, **character controller** hopping the dunes, motor-driven hinge **windmill**, **capsules** tumbling, and a **trigger zone** that lights up as the car passes ([`docs/playground.mp4`](docs/playground.mp4)) |
 
@@ -97,6 +98,13 @@ Rendered clips: [`cloth_drop.mp4`](docs/cloth_drop.mp4),
 welded box fragments (`fractureBoxGrid`) that stay put until the ball's impact
 calls `Destructible::shatter`, which bursts them apart with a radial + directional
 impulse — from then on they are ordinary rigid bodies that collide and settle.
+
+`burn3d` texture-maps a scan of the **1900 Larousse world planisphere**
+("Planisphère des colonies européennes — Heure universelle", public domain, via
+Wikimedia Commons) onto the burning cloth. The image is packed as zlib-compressed
+RGB in `demos/assets/worldmap.pmz` and inflated at load, so run the demo from the
+repo root (`./build/burn3d`) where that path resolves. The fire CA drives the char
+(which blackens the print), holes and curl; the sheet texture is otherwise static.
 
 ```sh
 cmake --build build           # builds rigid3d, cloth3d, hair3d if GLFW/GLEW present
