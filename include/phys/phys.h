@@ -32,6 +32,13 @@
 #include "fracture.h"
 #include "plastic.h"
 
+// Oscillations
+#include "springs.h"        // coupled spring-mass lattice → normal modes / harmonics
+#include "leaf.h"           // falling burning leaf: tumbling-plate aero + combustion
+
+// Fluids
+#include "sph.h"            // non-Newtonian SPH (shear-thickening/thinning, yield stress)
+
 // Feature parity with mainstream engines (Brax/Chrono/Gazebo/MuJoCo/ODE/PhysX/
 // PyBullet/Webots/Unity): capsules, raycasts, joint zoo + motors, heightfields,
 // CCD, contact events, triggers, kinematics, RK4, vehicles, characters.

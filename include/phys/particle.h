@@ -28,6 +28,7 @@ public:
     }
     void addForce(const Vector3& f) { forceAccum += f; }
     void clearAccumulator() { forceAccum.clear(); }
+    Vector3 getForceAccum() const { return forceAccum; }
 
     void setMass(real m) { assert(m != 0); inverseMass = ((real)1) / m; }
     real getMass() const { return inverseMass == 0 ? REAL_MAX : ((real)1) / inverseMass; }
