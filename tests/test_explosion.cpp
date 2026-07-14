@@ -3,6 +3,7 @@
 // and leaves fragments outside the blast radius untouched.
 #include "phys/fracture.h"
 #include "phys/voronoi.h"
+#include "phys/glassfrac.h"
 #include "phys/body.h"
 #include "check.h"
 #include <vector>
@@ -104,6 +105,26 @@ int main() {
         CHECK_NEAR(vol / boxV, 1.0, 0.02);                              // cells tile the block (≈ exact partition)
         CHECK(badI == 0);
         CHECK(notConvex == 0);                                          // all fragments are convex
+    }
+
+    // F) glass impact fracture: the radial+concentric cells partition the pane (minus
+    //    the punched hole), stay convex and thin (≈ thickness), with valid mass props.
+    {
+        real w = 1.5, h = 1.0, t = 0.03, holeR = 0.06;
+        auto cells = glassFracture(w, h, t, 0.2, 0.1, 24, 8, holeR, 7u);
+        CHECK(cells.size() > 100);                                     // a proper spider-web
+        real vol = 0; int bad = 0, notConvex = 0, notThin = 0;
+        for (auto& c : cells) {
+            vol += c.volume;
+            if (!(c.inertiaUnit.data[0] > 0 && c.inertiaUnit.data[4] > 0 && c.inertiaUnit.data[8] > 0)) bad++;
+            real zmin = 1e9, zmax = -1e9; for (auto& v : c.verts) { zmin = std::min(zmin, v.z); zmax = std::max(zmax, v.z); }
+            if (zmax - zmin > t * 1.02) notThin++;                     // each shard is a thin plate
+            for (size_t f = 0; f < c.tris.size(); f++) { Vector3 n = c.triN[f]; real d = n * c.verts[c.tris[f][0]];
+                for (auto& v : c.verts) if (n * v > d + 1e-3) { notConvex++; break; } }
+        }
+        real paneMinusHole = (2 * w) * (2 * h) * t - M_PI * holeR * holeR * t;
+        CHECK_NEAR(vol / paneMinusHole, 1.0, 0.02);                    // shards tile the pane exactly
+        CHECK(bad == 0); CHECK(notConvex == 0); CHECK(notThin == 0);
     }
 
     return test::report("explosion");
