@@ -32,6 +32,7 @@
 
 // Destruction
 #include "fracture.h"
+#include "voronoi.h"         // Voronoi fracture → irregular convex-polyhedron fragments
 #include "plastic.h"
 
 // Oscillations

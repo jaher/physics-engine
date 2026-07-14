@@ -29,7 +29,7 @@ feature family. Everything marked ✅ new is compile-tested and covered by
 | Sleeping / deactivation | all nine | ✅ (core) | `body.h` |
 | Springs, drag, buoyancy, aero | most | ✅ (core) | `fgen.h`, `pfgen.h` |
 | Cloth | PhysX, Bullet, MuJoCo(flex) | ✅ | `cloth.h` |
-| Fracture / destruction | PhysX (blast), Chrono | ✅ | `fracture.h` |
+| Fracture / destruction / **explosions** | PhysX (blast), Chrono | ✅ grid/jitter fracture + **Voronoi fracture into irregular convex chunks** + `detonate()` radial blast (see `demos/explosion3d.cpp` → `docs/explosion.mp4`) | `fracture.h`, `voronoi.h` |
 | Determinism | Brax, MuJoCo, ODE | ✅ (fixed-step, no hidden state) | — |
 
 ## Second wave — closing the gap matrix

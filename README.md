@@ -27,7 +27,7 @@ a physical test suite covering every layer.
 | — | app. | Deterministic random source (vectors, quaternions) | `random.h` |
 | + | — | **Cloth** — Verlet + structural/shear/bend constraints, sphere/ground collision with friction, wind | `cloth.h` |
 | + | — | **Hair** — Verlet strands with segment + bend constraints, head collision, gusting wind + turbulence | `hair.h` |
-| + | — | **Destruction** — grid/jitter fracture of a solid into welded box fragments that burst apart on impact | `fracture.h` |
+| + | — | **Destruction & explosions** — grid/jitter fracture into box fragments **or Voronoi fracture into irregular convex-polyhedron chunks** (exact volume/COM/inertia); `detonate()` a charge for a radial blast-overpressure explosion with an upward plume | `fracture.h`, `voronoi.h` |
 | + | — | **Spring harmonics** — coupled spring-mass lattice (Hooke links via `ParticleSpring`, fixed ends) on the engine's particles with a symplectic step; excites the analytic normal modes / standing-wave harmonics `ω_n = 2√(k/m)·sin(nπ/2(P+1))` | `springs.h` |
 | + | — | **Falling burning leaf** — tumbling-plate aerodynamics (anisotropic drag, reactive lift, underdamped broadside-seeking torque → flutter/tumble/spiral descent) coupled to a per-leaf combustion CA over an oak silhouette (ignite, glowing front, char, holes, curl) | `leaf.h` |
 | + | — | **Non-Newtonian fluids** — weakly-compressible **SPH** (poly6/spiky/viscosity kernels, grid neighbour search, XSPH) with a *shear-rate-dependent* Herschel–Bulkley/power-law viscosity `μ(γ̇)` → shear-**thickening** (oobleck), shear-**thinning** (ketchup), **yield-stress**/Bingham (**lava**) and Newtonian fluids; two-way-coupled rigid balls, static cylinder obstacles, runtime emitters/drains | `sph.h` |
@@ -65,7 +65,7 @@ bash tests/run_all.sh                                                  # or dire
 ## Verification
 
 Every layer is checked against analytic or known-physical results
-(`tests/*.cpp`, **493 assertions, all passing** — 22 suites, incl. a CUDA GPU suite):
+(`tests/*.cpp`, **558 assertions, all passing** — 23 suites, incl. a CUDA GPU suite):
 
 | Suite | What it proves |
 |-------|----------------|
@@ -89,6 +89,7 @@ Every layer is checked against analytic or known-physical results
 | `ros` | the node graph delivers every published message to all subscribers; Imu/LaserScan/JointState round-trip; sim→ROS adapters build well-formed messages |
 | `compound` | a multi-shape body aggregates total mass, centre of mass and the parallel-axis inertia tensor (barbell/stack); child primitives land at the right COM-relative world offsets; it integrates as one rigid body |
 | `em` | FDTD reproduces a PEC-cavity eigenfrequency to within 0.01% of `(c/2)√((1/Lx)²+(1/Ly)²)` and a wavefront travels at 0.9975 c; the leapfrog stays energy-bounded for 3000 steps; the MoM dipole gives a near-resonant Rin ≈ 73 Ω, a symmetric feed-peaked current, capacitive→inductive reactance, and a radiation pattern with a deep axial null |
+| `explosion` | grid fracture conserves the block's volume and fragment count exactly; **Voronoi fracture partitions the block (Σ cell volume ≈ box) into convex cells with valid mass properties**; `detonate()` throws every fragment radially outward with a net upward plume momentum, its blast energy scales with the square of the charge strength, and fragments outside the blast radius stay asleep |
 | `leaf` | the oak mask is a proper silhouette with veins; a dropped leaf falls at bounded speed, drifts sideways (flutters) and keeps an orthonormal frame; an unlit leaf keeps its fuel while an ignited one burns down to nothing |
 
 The dashboard above is produced by `demos/demo.cpp` and shows, with no tuning:
@@ -109,6 +110,7 @@ modern-OpenGL pipeline (`demos/common/`): directional-light **shadow mapping**
 | `hair3d`  | ~3400 simulated guide strands → **24k rendered strands** via clumping (`phys::Hair`), **Kajiya-Kay** anisotropic shading, gusting wind |
 | `clothesline3d` | garments pinned along a sagging string, hanging and swaying in a breeze (`phys::Cloth`) |
 | `destruction3d` | a solid block shattered by a wrecking ball — **granite** chunks or **wood** splinters (`phys::fracture`) |
+| `explosion3d` | a **concrete block detonated** — **Voronoi-fractured into ~78 irregular convex chunks** (not boxes) blasted radially outward by `Destructible::detonate`, colliding via GJK/EPA and settling into a rubble field, with an emissive fireball (blackbody ramp, HDR-bloomed) and a rising dust plume ([`docs/explosion.mp4`](docs/explosion.mp4)) |
 | `burn3d` | a hanging **antique world map** — a scan of the 1900 *Larousse* planisphere (public domain), texture-mapped onto the cloth — lit at one corner burns diagonally: a fire-propagation cellular automaton (`phys::BurningPaper`) drives a glowing ragged front that chars the print to black, with curling, holes and rising smoke + embers, while a light gusting breeze + travelling-wave `flutter` make the sheet undulate as it burns |
 | `harmonics3d` | six coil springs strung between posts, each ringing in a pure normal mode (1…6 antinodes) of a coupled spring-mass chain (`phys::SpringChain`) — the **harmonic series** as standing waves, the higher modes visibly faster; each coil is a helix swept along the live masses ([`docs/spring_harmonics.mp4`](docs/spring_harmonics.mp4)) |
 | `nonnewtonian3d` | the same heavy ball dropped into two SPH troughs — shear-thickening **oobleck** vs **water** (`phys::SPHFluid`): the oobleck's viscosity spikes under the impact's shear and absorbs the ball with barely a splash, while the water erupts in a crown. Drawn as a smooth screen-space surface ([`docs/nonnewtonian.mp4`](docs/nonnewtonian.mp4)) |

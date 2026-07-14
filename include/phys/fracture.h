@@ -55,6 +55,29 @@ struct Destructible {
             f->setRotation(Vector3(rr() - (real)0.5, rr() - (real)0.5, rr() - (real)0.5) * spin);
         }
     }
+
+    // Detonate an explosive charge at `centre`. Every fragment within `radius` is
+    // thrown radially outward at a speed that falls off with distance (blast
+    // overpressure ~ 1/r in the near field), plus an upward plume bias and a random
+    // tumble; fragments beyond the radius are left undisturbed. `strength` sets the
+    // blast velocity scale, `upBias` the fraction added as a rising plume.
+    void detonate(const Vector3& centre, real strength, real upBias, real radius, real spin, unsigned seed = 7) {
+        shattered = true; unsigned st = seed ? seed : 1u;
+        auto rr = [&]() { st = st * 1103515245u + 12345u; return (real)(((st >> 16) & 0x7fff) / 32767.0); };
+        const real core = (real)0.25;                       // near-field cap so v stays finite at the charge
+        for (auto* f : fragments) {
+            Vector3 d = f->getPosition() - centre; real dist = d.magnitude();
+            if (dist > radius) continue;                    // outside the blast — untouched
+            Vector3 dir = dist > (real)1e-6 ? d * (((real)1) / dist) : Vector3(0, 1, 0);
+            real speed = strength / (dist + core);          // overpressure falloff
+            Vector3 vel = dir * speed
+                        + Vector3(0, 1, 0) * (upBias * speed)
+                        + Vector3(rr() - (real)0.5, rr() - (real)0.5, rr() - (real)0.5) * (strength * (real)0.12);
+            f->setAwake(true);
+            f->setVelocity(vel);
+            f->setRotation(Vector3(rr() - (real)0.5, rr() - (real)0.5, rr() - (real)0.5) * spin);
+        }
+    }
 };
 
 } // namespace phys
