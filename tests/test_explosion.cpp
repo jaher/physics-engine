@@ -4,6 +4,7 @@
 #include "phys/fracture.h"
 #include "phys/voronoi.h"
 #include "phys/glassfrac.h"
+#include "phys/shellfrac.h"
 #include "phys/body.h"
 #include "check.h"
 #include <vector>
@@ -125,6 +126,27 @@ int main() {
         real paneMinusHole = (2 * w) * (2 * h) * t - M_PI * holeR * holeR * t;
         CHECK_NEAR(vol / paneMinusHole, 1.0, 0.02);                    // shards tile the pane exactly
         CHECK(bad == 0); CHECK(notConvex == 0); CHECK(notThin == 0);
+    }
+
+    // G) hollow-cylinder shell fracture: the wall dices into nCirc×nRows small convex
+    //    pieces that tile the shell (Σ vol ≈ the analytic cylindrical shell, minus a
+    //    little polygonal faceting), each with valid mass properties.
+    {
+        real R = 0.5, Hh = 0.7, wt = 0.04; int nc = 16, nr = 6;
+        auto walls = cylinderShellFracture(R, Hh, wt, nc, nr, false, 7u);
+        CHECK((int)walls.size() == nc * nr);
+        real vol = 0, minVol = 1e9; int bad = 0, notConvex = 0;
+        for (auto& c : walls) {
+            vol += c.volume; minVol = std::min(minVol, c.volume);
+            if (!(c.inertiaUnit.data[0] > 0 && c.inertiaUnit.data[4] > 0 && c.inertiaUnit.data[8] > 0)) bad++;
+            for (size_t f = 0; f < c.tris.size(); f++) { Vector3 n = c.triN[f]; real d = n * c.verts[c.tris[f][0]];
+                for (auto& v : c.verts) if (n * v > d + 1e-3) { notConvex++; break; } }
+        }
+        real shell = M_PI * ((R + wt / 2) * (R + wt / 2) - (R - wt / 2) * (R - wt / 2)) * (2 * Hh);
+        CHECK(minVol > 0);                                            // every piece has positive volume
+        CHECK(vol / shell > 0.93 && vol / shell < 1.01);              // tiles the shell (faceting < ~5%)
+        CHECK(bad == 0); CHECK(notConvex == 0);
+        CHECK(cylinderShellFracture(R, Hh, wt, nc, nr, true, 7u).size() == size_t(nc * nr + 2 * nc));   // + end caps
     }
 
     return test::report("explosion");

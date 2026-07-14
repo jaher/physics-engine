@@ -34,6 +34,7 @@
 #include "fracture.h"
 #include "voronoi.h"         // Voronoi fracture → irregular convex-polyhedron fragments
 #include "glassfrac.h"       // radial+concentric "bullet-hole" fracture of a thin glass pane
+#include "shellfrac.h"       // hollow-cylinder shell fracture → small curved metal shards
 #include "plastic.h"
 
 // Oscillations
