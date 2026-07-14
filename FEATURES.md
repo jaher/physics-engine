@@ -40,7 +40,7 @@ their own test suites (`bash tests/run_all.sh` → **434 assertions across 18 su
 
 | Was missing in | Now here | Where | Test |
 |---|---|---|---|
-| Convex-hull & triangle-mesh colliders, cylinder/cone (all nine) | ✅ GJK + EPA convex-convex, cyl/cone vs plane, sphere/box vs trimesh | `collide_convex.h` | `convex` (36) |
+| Convex-hull & triangle-mesh colliders, cylinder/cone (all nine) | ✅ GJK + EPA convex-convex, convex hull vs half-space, cyl/cone vs plane, sphere/box vs trimesh | `collide_convex.h` | `convex` (40) |
 | Featherstone reduced-coordinate articulation (MuJoCo/PhysX/Bullet/Brax) | ✅ O(n) Articulated-Body Algorithm, revolute/prismatic serial-tree chains | `articulation.h` | `articulation` (6) |
 | Persistent multi-point manifolds + warm starting (Bullet/PhysX) | ✅ up-to-4-point cache, warm-started impulses, material combine modes, rolling/spin friction | `contacts.h`, `material.h` | `contacts2` (17) |
 | Volumetric FEM soft bodies (Chrono/PhysX5), cloth self-collision, PBF fluids | ✅ co-rotational tet-FEM, spatial-hash self-collision, position-based fluids | `softbody.h` | `softbody` (22) |

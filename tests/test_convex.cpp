@@ -145,5 +145,21 @@ int main() {
         CHECK(vnear(contacts[0].contactNormal, Vector3(-1, 0, 0), 1e-6));
     }
 
+    // F) convex hull vs a half-space: the four bottom corners below the floor make
+    //    contacts (normal up, penetration = depth); lifted clear → none.
+    {
+        RigidBody a; place(a, Vector3(0, 0.3, 0));
+        CollisionConvex ca; ca.body = &a; ca.setBox(Vector3(1, 1, 1)); ca.calculateInternals();
+        CollisionPlane floor; floor.direction = Vector3(0, 1, 0); floor.offset = 0;
+        data.reset(64);
+        unsigned n = ConvexCollision::convexAndHalfSpace(ca, floor, &data);
+        CHECK(n == 4);                                    // 4 bottom corners at y = −0.7
+        CHECK_NEAR(contacts[0].penetration, 0.7, 1e-6);
+        CHECK(vnear(contacts[0].contactNormal, Vector3(0, 1, 0), 1e-6));
+        place(a, Vector3(0, 2.0, 0)); ca.calculateInternals();
+        data.reset(64);
+        CHECK(ConvexCollision::convexAndHalfSpace(ca, floor, &data) == 0);   // lifted clear
+    }
+
     return test::report("convex");
 }

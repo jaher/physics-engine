@@ -65,7 +65,7 @@ bash tests/run_all.sh                                                  # or dire
 ## Verification
 
 Every layer is checked against analytic or known-physical results
-(`tests/*.cpp`, **558 assertions, all passing** — 23 suites, incl. a CUDA GPU suite):
+(`tests/*.cpp`, **562 assertions, all passing** — 23 suites, incl. a CUDA GPU suite):
 
 | Suite | What it proves |
 |-------|----------------|
@@ -111,6 +111,7 @@ modern-OpenGL pipeline (`demos/common/`): directional-light **shadow mapping**
 | `clothesline3d` | garments pinned along a sagging string, hanging and swaying in a breeze (`phys::Cloth`) |
 | `destruction3d` | a solid block shattered by a wrecking ball — **granite** chunks or **wood** splinters (`phys::fracture`) |
 | `explosion3d` | a **concrete block detonated** — **Voronoi-fractured into ~78 irregular convex chunks** (not boxes) blasted radially outward by `Destructible::detonate`, colliding via GJK/EPA and settling into a rubble field, with an emissive fireball (blackbody ramp, HDR-bloomed) and a rising dust plume ([`docs/explosion.mp4`](docs/explosion.mp4)) |
+| `roomblast3d` | a **room full of objects and an explosion** — a block, pillars and a slab, each **Voronoi-fractured** into welded convex chunks, are shattered by a central charge; the fragments blast across an enclosed room and ricochet off its 6 walls (convex hull vs half-space, so nothing tunnels out) before settling into a coloured debris field, under a cutaway view with fireball + dust ([`docs/roomblast.mp4`](docs/roomblast.mp4)) |
 | `burn3d` | a hanging **antique world map** — a scan of the 1900 *Larousse* planisphere (public domain), texture-mapped onto the cloth — lit at one corner burns diagonally: a fire-propagation cellular automaton (`phys::BurningPaper`) drives a glowing ragged front that chars the print to black, with curling, holes and rising smoke + embers, while a light gusting breeze + travelling-wave `flutter` make the sheet undulate as it burns |
 | `harmonics3d` | six coil springs strung between posts, each ringing in a pure normal mode (1…6 antinodes) of a coupled spring-mass chain (`phys::SpringChain`) — the **harmonic series** as standing waves, the higher modes visibly faster; each coil is a helix swept along the live masses ([`docs/spring_harmonics.mp4`](docs/spring_harmonics.mp4)) |
 | `nonnewtonian3d` | the same heavy ball dropped into two SPH troughs — shear-thickening **oobleck** vs **water** (`phys::SPHFluid`): the oobleck's viscosity spikes under the impact's shear and absorbs the ball with barely a splash, while the water erupts in a crown. Drawn as a smooth screen-space surface ([`docs/nonnewtonian.mp4`](docs/nonnewtonian.mp4)) |

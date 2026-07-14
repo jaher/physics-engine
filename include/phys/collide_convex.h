@@ -413,6 +413,25 @@ struct ConvexCollision {
         c->setBodyData(a.body, b.body, data->friction, data->restitution);
         data->addContacts(1); return 1;
     }
+    // convex hull vs a half-space: every hull vertex that dips below the plane makes a
+    // contact (exact, no GJK — good for containing convex fragments in a room/box).
+    static unsigned convexAndHalfSpace(const CollisionConvex& hull, const CollisionPlane& plane, CollisionData* data) {
+        if (data->contactsLeft <= 0) return 0;
+        Contact* contact = data->contacts; unsigned used = 0;
+        for (const Vector3& lv : hull.vertices) {
+            Vector3 wp = hull.getTransform().transform(lv);
+            real vd = wp * plane.direction;
+            if (vd <= plane.offset) {
+                contact->contactPoint = plane.direction * (vd - plane.offset) + wp;
+                contact->contactNormal = plane.direction;
+                contact->penetration = plane.offset - vd;
+                contact->setBodyData(hull.body, nullptr, data->friction, data->restitution);
+                contact++; used++;
+                if ((int)used == data->contactsLeft) break;
+            }
+        }
+        data->addContacts(used); return used;
+    }
 
     // ---- shared approximations for round primitives ----
     // Treat a rounded segment (capsule of the given radius) against a sphere/box.
