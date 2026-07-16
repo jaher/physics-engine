@@ -1,71 +1,179 @@
-# A game physics engine (Millington's *Cyclone*, from scratch)
+# A from-scratch C++ physics & simulation engine
 
-A complete C++ rigid-body physics engine implementing the architecture of Ian
-Millington's **_Game Physics Engine Development_** — particles, mass-aggregate
-systems, rigid bodies, coarse + fine collision detection, and the full
-contact-resolution pipeline. Header-only, double precision, dependency-free, with
-a physical test suite covering every layer.
+A comprehensive, **header-only** C++ physics engine — written from scratch, double
+precision, with a **dependency-free core** — that reaches well beyond rigid bodies.
+It spans the full rigid-body dynamics and contact-resolution pipeline; convex &
+triangle-mesh collision via **GJK + EPA**; joints, motors and constraints; **cloth
+and hair**; **fracture, destruction and explosions**; **SPH fluids** — from a CPU
+non-Newtonian rheology solver to a **CUDA GPU** solver that scales to **millions of
+particles**; **FEM soft bodies**; **Featherstone articulated bodies**; a **robotics**
+layer (URDF/MJCF, inverse dynamics, IK, sensors); differentiable and island-parallel
+solvers; and even a computational-**electromagnetics** layer (FDTD + Method of
+Moments).
+
+Every layer is validated against analytic or known-physical results — **589
+assertions across 23 test suites** (including a CUDA GPU suite) — and showcased by
+**40+ real-time OpenGL demos** with shadow-mapped Cook-Torrance PBR rendering.
 
 ![verification dashboard](docs/physics_demo.svg)
 
-## What's implemented (mapped to the book)
+## Gallery
 
-| Part | Chapters | Feature | Files |
-|------|----------|---------|-------|
-| — | — | Vector3, Quaternion, Matrix3, Matrix4 (transforms, inverse, inertia) | `core.h`, `precision.h` |
-| I | 3–4 | Particle + semi-implicit Euler integration | `particle.h` |
-| II | 5–6 | Force generators: gravity, drag, spring, anchored spring, bungee, buoyancy, stiff (analytic) spring | `pfgen.h` |
-| II | 7 | Particle contacts + resolver (velocity impulse & interpenetration, resting-contact correction) | `pcontacts.h` |
-| II | 7 | Hard constraints: cables, rods, and anchored variants | `plinks.h` |
-| II | 8 | Mass-aggregate particle world | `pworld.h` |
-| III | 9–10 | Rigid body: 6-DOF integration, world inertia tensor, sleep system | `body.h` |
-| III | 11 | Rigid-body force generators: gravity, spring, aero + control surface, buoyancy | `fgen.h` |
-| IV | 12 | Broad phase: bounding-sphere hierarchy (BVH), potential contacts | `collide_coarse.h` |
-| IV | 13 | Narrow phase: sphere/box/plane primitives, intersection tests, contact generation incl. **box-box SAT** | `collide_fine.h` |
-| V | 14–15 | Contact + resolver: impulse velocity resolution, anisotropic **friction**, nonlinear position projection | `contacts.h` |
-| V | 15 | Rigid-body world; ball-and-socket **joints** | `world.h`, `joints.h` |
-| — | app. | Deterministic random source (vectors, quaternions) | `random.h` |
-| + | — | **Cloth** — Verlet + structural/shear/bend constraints, sphere/ground collision with friction, wind | `cloth.h` |
-| + | — | **Hair** — Verlet strands with segment + bend constraints, head collision, gusting wind + turbulence | `hair.h` |
-| + | — | **Destruction & explosions** — grid/jitter box fracture, **Voronoi** irregular convex chunks, radial+concentric **impact ("bullet-hole") glass fracture**, or **hollow-cylinder shell fracture** (regular grid, or Voronoi-style **irregular** metal shards) (all with exact volume/COM/inertia); `detonate()` a charge for a radial blast-overpressure explosion with an upward plume | `fracture.h`, `voronoi.h`, `glassfrac.h`, `shellfrac.h` |
-| + | — | **Spring harmonics** — coupled spring-mass lattice (Hooke links via `ParticleSpring`, fixed ends) on the engine's particles with a symplectic step; excites the analytic normal modes / standing-wave harmonics `ω_n = 2√(k/m)·sin(nπ/2(P+1))` | `springs.h` |
-| + | — | **Falling burning leaf** — tumbling-plate aerodynamics (anisotropic drag, reactive lift, underdamped broadside-seeking torque → flutter/tumble/spiral descent) coupled to a per-leaf combustion CA over an oak silhouette (ignite, glowing front, char, holes, curl) | `leaf.h` |
-| + | — | **Non-Newtonian fluids** — weakly-compressible **SPH** (poly6/spiky/viscosity kernels, grid neighbour search, XSPH) with a *shear-rate-dependent* Herschel–Bulkley/power-law viscosity `μ(γ̇)` → shear-**thickening** (oobleck), shear-**thinning** (ketchup), **yield-stress**/Bingham (**lava**) and Newtonian fluids; two-way-coupled rigid balls, static cylinder obstacles, runtime emitters/drains | `sph.h` |
-| + | — | **Screen-space fluid surface** — particles → eye-space depth → bilateral smoothing → normal reconstruction → shaded liquid (glossy Fresnel or molten blackbody emissive); makes SPH read as a surface, not spheres | `demos/common/fluidsurf.h` |
-| + | — | **Framework parity** (vs Brax/Chrono/Gazebo/MuJoCo/ODE/PhysX/PyBullet/Webots/Unity — see [FEATURES.md](FEATURES.md)): capsules, raycasts, hinge/slider/fixed/distance/universal/gear joints + limits + motors + PD servos, heightfield terrain, CCD, contact events, triggers, kinematic bodies, RK4, raycast vehicle, character controller | `shapes.h`, `raycast.h`, `joints2.h`, `terrain.h`, `extras.h`, `vehicle.h`, `character.h` |
-| + | — | **Convex & mesh geometry** — arbitrary convex hulls (GJK boolean + closest-distance + EPA penetration), analytic cylinder & cone, static triangle-mesh collider with grid midphase | `collide_convex.h` |
-| + | — | **Articulated bodies** — Featherstone O(n) articulated-body algorithm in reduced (joint) coordinates for serial/tree chains of revolute/prismatic joints | `articulation.h` |
-| + | — | **Contact solver upgrade** — persistent up-to-4-point manifolds with warm-started impulses, `Material` + combine modes (Average/Min/Max/Multiply), rolling & spinning friction | `contacts.h`, `material.h` |
-| + | — | **Soft bodies & PBF** — co-rotational tetrahedral FEM deformables, cloth self-collision, position-based fluids | `softbody.h` |
-| + | — | **Soft constraints & fields** — CFM/ERP springy link, breakable joint, conveyor surfaces, wind/radial force fields, rigid hydrodynamics, backward-Euler implicit spring | `constraint2.h` |
-| + | — | **Scene queries & broad phases** — swept + overlap queries, speculative contacts, sweep-and-prune, dynamic AABB tree, state snapshot/restore | `query.h`, `broadphase2.h`, `serialize.h` |
-| + | — | **Robotics layer** — URDF/MJCF loader, IMU/lidar/contact-force sensors, recursive-Newton-Euler inverse dynamics, Jacobian IK, tendon/muscle actuators | `loader.h`, `robotics.h` |
-| + | — | **Advanced paradigms** — forward-mode autodiff → differentiable physics, island-parallel `std::thread` solver, approximate convex decomposition (V-HACD-lite) | `autodiff.h`, `parallel.h`, `decompose.h` |
-| + | — | **GPU execution** — a CUDA massively-parallel SPH fluid (spatial-hash grid, thrust sort, on-GPU density/force/integrate), with **surface-tension cohesion** (Becker–Teschner), **axis-aligned box (SDF) obstacles**, a **recirculating emitter**, a rotating-frame **Coriolis** force and an advected **passive dye** tracer; ~360k particles at ~0.2 ms/step (≈1.8·10⁹ particle-steps/s) on an RTX 5090, driving a **2.4M-particle waterfall** and a side-by-side **Coriolis** rotating-tank demo | `gpu/gpu_sph.cuh` |
-| + | — | **ROS/ROS2 bridge** — ROS2-compatible messages (Imu, LaserScan, JointState, Odometry, tf2) + node/publisher/subscription graph over an in-process transport, bindable to real `rclcpp` | `ros_bridge.h` |
-| + | — | **Compound (multi-shape) bodies** — one rigid body carrying several offset box/sphere primitives, with aggregate mass, centre of mass and the full parallel-axis inertia tensor computed for you | `compound.h` |
-| + | — | **Maxwell's equations (FDTD)** — Yee-grid leapfrog of the curl equations (TM & TE), PEC / absorbing boundaries; reproduces cavity resonances to 0.01% and wave propagation at the speed of light | `fdtd.h` |
-| + | — | **Antenna analysis (Method of Moments)** — thin-wire dipole EFIE (Pocklington, pulse basis, delta-gap feed): current distribution, input impedance (~73 Ω near resonance), radiation pattern | `mom.h` |
+Each thumbnail links to a rendered clip.
 
-Include everything with `#include "phys/phys.h"`; the namespace is `phys`.  The
-cloth and hair modules (extensions beyond the book, driving the 3D demos) are in
-`phys/cloth.h` and `phys/hair.h`.
+### Fluids — CPU rheology & CUDA GPU (to millions of particles)
 
-## Build & test
+<table>
+<tr>
+<td align="center" width="33%"><a href="docs/waterfall.mp4"><img src="docs/waterfall.png" width="270"></a><br><b>waterfall3d</b><br><sub>2.4M-particle GPU SPH waterfall</sub></td>
+<td align="center" width="33%"><a href="docs/coriolis.mp4"><img src="docs/coriolis.png" width="270"></a><br><b>coriolis3d</b><br><sub>Coriolis effect: rotating vs still tank</sub></td>
+<td align="center" width="33%"><a href="docs/gpu_fluid.mp4"><img src="docs/gpu_fluid.png" width="270"></a><br><b>gpu_fluid3d</b><br><sub>GPU dam-break, ~900k particles</sub></td>
+</tr>
+<tr>
+<td align="center" width="33%"><a href="docs/lava.mp4"><img src="docs/lava.png" width="270"></a><br><b>lava3d</b><br><sub>hot shear-thinning Bingham fluid</sub></td>
+<td align="center" width="33%"><a href="docs/nonnewtonian.mp4"><img src="docs/nonnewtonian.png" width="270"></a><br><b>nonnewtonian3d</b><br><sub>shear-thickening oobleck vs water</sub></td>
+<td align="center" width="33%"><a href="docs/snow_footprints.mp4"><img src="docs/snow_footprints.png" width="270"></a><br><b>snow3d</b><br><sub>footprints pressed into a drift</sub></td>
+</tr>
+</table>
 
-Header-only — just add `include/` to your include path. To build the tests and
-the demo:
+### Fracture, destruction & explosions
+
+<table>
+<tr>
+<td align="center" width="33%"><a href="docs/explosion.mp4"><img src="docs/explosion.png" width="270"></a><br><b>explosion3d</b><br><sub>Voronoi-fractured block + fireball</sub></td>
+<td align="center" width="33%"><a href="docs/bulletbarrel.mp4"><img src="docs/bulletbarrel.png" width="270"></a><br><b>bulletbarrel3d</b><br><sub>bullet → barrel chain reaction</sub></td>
+<td align="center" width="33%"><a href="docs/roomblast.mp4"><img src="docs/roomblast.png" width="270"></a><br><b>roomblast3d</b><br><sub>a room of objects blown apart</sub></td>
+</tr>
+<tr>
+<td align="center" width="33%"><a href="docs/bulletglass.mp4"><img src="docs/bulletglass.png" width="270"></a><br><b>bulletglass3d</b><br><sub>bullet through a shattering pane</sub></td>
+<td align="center" width="33%"><a href="docs/bulletproofglass.mp4"><img src="docs/bulletproofglass.png" width="270"></a><br><b>bulletproofglass3d</b><br><sub>laminated glass stops the round</sub></td>
+<td align="center" width="33%"><a href="docs/mirror_shatter.mp4"><img src="docs/mirror_shatter.png" width="270"></a><br><b>mirror3d</b><br><sub>a shattering mirror</sub></td>
+</tr>
+<tr>
+<td align="center" width="33%"><a href="docs/destruction_granite.mp4"><img src="docs/destruction_granite.png" width="270"></a><br><b>destruction3d</b><br><sub>granite chunks off a wrecking ball</sub></td>
+<td align="center" width="33%"><a href="docs/destruction_wood.mp4"><img src="docs/destruction_wood.png" width="270"></a><br><b>destruction3d</b><br><sub>wood splinters</sub></td>
+<td align="center" width="33%"><a href="docs/wall_breakthrough.mp4"><img src="docs/wall_breakthrough.png" width="270"></a><br><b>wall3d</b><br><sub>a ball punches a ragged hole</sub></td>
+</tr>
+</table>
+
+### Rigid bodies, cloth, hair & soft bodies
+
+<table>
+<tr>
+<td align="center" width="33%"><a href="docs/stacking.mp4"><img src="docs/stacking.png" width="270"></a><br><b>stack3d</b><br><sub>warm-started brick pyramid</sub></td>
+<td align="center" width="33%"><a href="docs/convex.mp4"><img src="docs/convex.png" width="270"></a><br><b>convex3d</b><br><sub>convex-hull gems (GJK/EPA)</sub></td>
+<td align="center" width="33%"><img src="docs/rigid3d.png" width="270"><br><b>rigid3d</b><br><sub>boxes & spheres piling up</sub></td>
+</tr>
+<tr>
+<td align="center" width="33%"><a href="docs/cloth_drop.mp4"><img src="docs/cloth3d.png" width="270"></a><br><b>cloth3d</b><br><sub>a sheet draping over a sphere</sub></td>
+<td align="center" width="33%"><a href="docs/hair_wind.mp4"><img src="docs/hair3d.png" width="270"></a><br><b>hair3d</b><br><sub>24k rendered strands, Kajiya-Kay</sub></td>
+<td align="center" width="33%"><a href="docs/clothesline.mp4"><img src="docs/clothesline.png" width="270"></a><br><b>clothesline3d</b><br><sub>garments swaying in a breeze</sub></td>
+</tr>
+<tr>
+<td align="center" width="33%"><a href="docs/softbody.mp4"><img src="docs/softbody.png" width="270"></a><br><b>softbody3d</b><br><sub>co-rotational FEM jelly cubes</sub></td>
+<td align="center" width="33%"><a href="docs/rope.mp4"><img src="docs/rope.png" width="270"></a><br><b>rope3d</b><br><sub>rope dynamics</sub></td>
+<td align="center" width="33%"><a href="docs/tangle.mp4"><img src="docs/tangle.png" width="270"></a><br><b>tangle3d</b><br><sub>tangled strands</sub></td>
+</tr>
+</table>
+
+### Mechanisms, articulated bodies & robotics
+
+<table>
+<tr>
+<td align="center" width="33%"><a href="docs/articulation.mp4"><img src="docs/articulation.png" width="270"></a><br><b>articulation3d</b><br><sub>Featherstone multi-pendulum</sub></td>
+<td align="center" width="33%"><a href="docs/robotics.mp4"><img src="docs/robotics.png" width="270"></a><br><b>robotics3d</b><br><sub>arm IK tracking + lidar scan</sub></td>
+<td align="center" width="33%"><a href="docs/playground.mp4"><img src="docs/playground.png" width="270"></a><br><b>playground3d</b><br><sub>vehicle + character + terrain</sub></td>
+</tr>
+<tr>
+<td align="center" width="33%"><a href="docs/galton.mp4"><img src="docs/galton.png" width="270"></a><br><b>galton3d</b><br><sub>Galton board → bell curve</sub></td>
+<td align="center" width="33%"><a href="docs/constraints.mp4"><img src="docs/constraints.png" width="270"></a><br><b>constraints3d</b><br><sub>conveyor belt + crosswind field</sub></td>
+<td align="center" width="33%"><a href="docs/spring_harmonics.mp4"><img src="docs/spring_harmonics.png" width="270"></a><br><b>harmonics3d</b><br><sub>standing-wave spring modes</sub></td>
+</tr>
+<tr>
+<td align="center" width="33%"><a href="docs/chains.mp4"><img src="docs/chains.png" width="270"></a><br><b>chains3d</b><br><sub>swinging chains</sub></td>
+<td align="center" width="33%"><a href="docs/forge_bend.mp4"><img src="docs/forge_bend.png" width="270"></a><br><b>forge3d</b><br><sub>bending hot metal</sub></td>
+<td align="center" width="33%"></td>
+</tr>
+</table>
+
+### Combustion, aerodynamics & electromagnetics
+
+<table>
+<tr>
+<td align="center" width="33%"><a href="docs/burning_paper.mp4"><img src="docs/burning_paper.png" width="270"></a><br><b>burn3d</b><br><sub>an antique world map burning</sub></td>
+<td align="center" width="33%"><a href="docs/burning_leaves.mp4"><img src="docs/burning_leaves.png" width="270"></a><br><b>leaves3d</b><br><sub>oak leaves fluttering down & burning</sub></td>
+<td align="center" width="33%"><a href="docs/antenna3d.mp4"><img src="docs/antenna3d.png" width="270"></a><br><b>antenna3d</b><br><sub>3-D dipole radiation pattern (MoM)</sub></td>
+</tr>
+<tr>
+<td align="center" width="33%"><a href="docs/em_antenna.mp4"><img src="docs/em_antenna.png" width="270"></a><br><b>em2d</b><br><sub>Maxwell FDTD driven by a MoM dipole</sub></td>
+<td align="center" width="33%"></td>
+<td align="center" width="33%"></td>
+</tr>
+</table>
+
+## Capabilities
+
+Everything is header-only; include it all with `#include "phys/phys.h"` (namespace
+`phys`). See [FEATURES.md](FEATURES.md) for a feature-by-feature comparison against
+nine mainstream frameworks (Brax, Chrono, Gazebo, MuJoCo, ODE, PhysX, PyBullet,
+Webots, Unity).
+
+| Capability | Files |
+|---|---|
+| **Core maths** — `Vector3`, `Quaternion`, `Matrix3`, `Matrix4` (transforms, inverse, inertia tensors), deterministic random source | `core.h`, `precision.h`, `random.h` |
+| **Particles & mass-aggregate** — semi-implicit Euler particles; force generators (gravity, drag, spring, anchored/bungee spring, buoyancy, stiff analytic spring); particle contacts + resolver; cables & rods; mass-aggregate world | `particle.h`, `pfgen.h`, `pcontacts.h`, `plinks.h`, `pworld.h` |
+| **Rigid-body dynamics** — 6-DOF integration, world inertia tensor, sleep/deactivation system; rigid-body force generators (gravity, spring, aero + control surface, buoyancy) | `body.h`, `fgen.h` |
+| **Collision detection** — bounding-sphere hierarchy (BVH) broad phase; sphere/box/plane narrow phase incl. **box-box SAT**; impulse contact resolver with anisotropic **friction** and nonlinear position projection | `collide_coarse.h`, `collide_fine.h`, `contacts.h` |
+| **Convex & mesh geometry** — arbitrary convex hulls (**GJK** boolean + closest distance + **EPA** penetration), analytic cylinder & cone, static triangle-mesh collider with grid midphase | `collide_convex.h` |
+| **Joints, motors & constraints** — ball-and-socket, hinge/slider/fixed/distance/universal, gear coupling, limits + velocity motors + PD servos; CFM/ERP soft links, breakable joints, conveyors, wind/radial force fields, rigid hydrodynamics, implicit spring | `joints.h`, `joints2.h`, `constraint2.h` |
+| **Contact solver upgrade** — persistent up-to-4-point manifolds, warm-started impulses, `Material` combine modes, rolling & spinning friction | `contacts.h`, `material.h` |
+| **Articulated bodies** — Featherstone O(n) articulated-body algorithm in reduced (joint) coordinates for serial/tree chains of revolute/prismatic joints | `articulation.h` |
+| **Cloth & hair** — Verlet cloth (structural/shear/bend constraints, collision + friction, wind); Verlet hair strands with bend constraints, head collision, gusting turbulence | `cloth.h`, `hair.h` |
+| **Soft bodies & PBF** — co-rotational tetrahedral **FEM** deformables, cloth self-collision, position-based fluids | `softbody.h` |
+| **Fracture, destruction & explosions** — grid/jitter box fracture, **Voronoi** irregular convex chunks, radial+concentric **impact ("bullet-hole") glass** fracture, **hollow-cylinder shell** fracture (regular grid or Voronoi-irregular metal shards) — all with exact volume/COM/inertia; `detonate()` a charge for a radial blast with an upward plume | `fracture.h`, `voronoi.h`, `glassfrac.h`, `shellfrac.h` |
+| **Non-Newtonian SPH fluids** — weakly-compressible SPH (poly6/spiky/viscosity kernels, grid neighbours, XSPH) with a shear-rate-dependent Herschel–Bulkley/power-law viscosity → shear-**thickening** (oobleck), shear-**thinning** (ketchup), **yield-stress** (lava) and Newtonian fluids; two-way-coupled rigid balls, obstacles, runtime emitters/drains | `sph.h` |
+| **GPU fluids (CUDA)** — massively-parallel SPH (spatial-hash grid, thrust sort, on-GPU density/force/integrate) with **surface-tension cohesion**, **box (SDF) obstacles**, a **recirculating emitter**, a rotating-frame **Coriolis** force and advected **passive dye**; ~360k particles at ~0.2 ms/step on an RTX 5090, driving a 2.4M-particle waterfall | `gpu/gpu_sph.cuh` |
+| **Screen-space fluid surface** — particle depth → bilateral smoothing → normal reconstruction → shaded liquid (glossy Fresnel or molten blackbody emissive) | `demos/common/fluidsurf.h` |
+| **Aerodynamics & combustion** — tumbling-plate falling-leaf aerodynamics + per-leaf combustion CA; paper/cloth fire propagation with char, holes and smoke | `leaf.h`, and demo `burn3d` |
+| **Spring harmonics** — coupled spring-mass lattice exciting analytic normal modes `ω_n = 2√(k/m)·sin(nπ/2(P+1))` | `springs.h` |
+| **Robotics layer** — URDF/MJCF loader, IMU/lidar/contact-force sensors, recursive-Newton-Euler inverse dynamics, Jacobian IK, tendon/muscle actuators | `loader.h`, `robotics.h` |
+| **Framework-parity extras** — capsules, raycasts, heightfield terrain, continuous collision detection, contact events, trigger volumes, kinematic bodies, RK4, raycast vehicle, character controller | `shapes.h`, `raycast.h`, `terrain.h`, `extras.h`, `vehicle.h`, `character.h` |
+| **Scene queries & broad phases** — swept + overlap queries, speculative contacts, sweep-and-prune, dynamic AABB tree, state snapshot/restore | `query.h`, `broadphase2.h`, `serialize.h` |
+| **Advanced paradigms** — forward-mode autodiff → differentiable physics, island-parallel `std::thread` solver, approximate convex decomposition (V-HACD-lite) | `autodiff.h`, `parallel.h`, `decompose.h` |
+| **Compound (multi-shape) bodies** — one rigid body over several offset box/sphere primitives, with aggregate mass, COM and parallel-axis inertia | `compound.h` |
+| **ROS/ROS2 bridge** — ROS2-compatible messages + node/publisher/subscription graph over an in-process transport, bindable to real `rclcpp` | `ros_bridge.h` |
+| **Computational electromagnetics** — Maxwell's equations by Yee-grid **FDTD** (TM & TE, PEC/absorbing borders); dipole antenna analysis by the **Method of Moments** (thin-wire EFIE) | `fdtd.h`, `mom.h` |
+
+## Build & run
+
+Header-only — just put `include/` on your include path. To build the tests and demos:
 
 ```sh
 cmake -B build -S . && cmake --build build && ctest --test-dir build   # via CMake
 bash tests/run_all.sh                                                  # or directly with g++
-./build/demo docs/physics_demo.svg                                     # regenerate the dashboard
 ```
+
+The **3D OpenGL demos** need **GLFW3, GLEW, GLM, zlib** (the engine and its tests
+need none of these); the **GPU** module needs **CUDA / nvcc**. Both are optional and
+skipped by CMake if absent. Each demo is interactive (drag to orbit, scroll to zoom)
+and also runs headless to render stills or image sequences:
+
+```sh
+./build/rigid3d                                # interactive
+./build/waterfall3d --shot out.png [frames]    # headless still
+./build/waterfall3d --video frames/f [nframes] # headless image sequence
+```
+
+Screenshots are written with a built-in zlib PNG encoder; assemble a video from a
+`--video` sequence with any tool, e.g. `ffmpeg -framerate 30 -i frames/f_%04d.png
+-pix_fmt yuv420p out.mp4`. `burn3d` and `leaves3d` load packed public-domain image
+assets (an 1900 *Larousse* world planisphere; real oak-leaf photos) from
+`demos/assets/`, so run them from the repo root.
 
 ## Verification
 
-Every layer is checked against analytic or known-physical results
-(`tests/*.cpp`, **589 assertions, all passing** — 23 suites, incl. a CUDA GPU suite):
+Every layer is checked against analytic or known-physical results (`tests/*.cpp`,
+**589 assertions, all passing** — 23 suites, incl. a CUDA GPU suite):
 
 | Suite | What it proves |
 |-------|----------------|
@@ -89,107 +197,32 @@ Every layer is checked against analytic or known-physical results
 | `ros` | the node graph delivers every published message to all subscribers; Imu/LaserScan/JointState round-trip; sim→ROS adapters build well-formed messages |
 | `compound` | a multi-shape body aggregates total mass, centre of mass and the parallel-axis inertia tensor (barbell/stack); child primitives land at the right COM-relative world offsets; it integrates as one rigid body |
 | `em` | FDTD reproduces a PEC-cavity eigenfrequency to within 0.01% of `(c/2)√((1/Lx)²+(1/Ly)²)` and a wavefront travels at 0.9975 c; the leapfrog stays energy-bounded for 3000 steps; the MoM dipole gives a near-resonant Rin ≈ 73 Ω, a symmetric feed-peaked current, capacitive→inductive reactance, and a radiation pattern with a deep axial null |
-| `explosion` | grid fracture conserves the block's volume and fragment count exactly; **Voronoi fracture partitions the block (Σ cell volume ≈ box) into convex cells with valid mass properties**; the radial+concentric **glass fracture** likewise tiles the pane (minus the punched hole) into thin convex shards, and the **hollow-cylinder shell fracture** dices the barrel wall (regular grid or **irregular Voronoi**) into small convex metal pieces that tile the shell; `detonate()` throws every fragment radially outward with a net upward plume momentum, its blast energy scales with the square of the charge strength, and fragments outside the blast radius stay asleep |
+| `explosion` | grid fracture conserves the block's volume and fragment count exactly; **Voronoi fracture** partitions the block into convex cells with valid mass properties; the radial+concentric **glass fracture** tiles the pane (minus the punched hole) into thin convex shards, and the **hollow-cylinder shell fracture** dices the barrel wall (grid or **irregular Voronoi**) into convex metal pieces that tile the shell; `detonate()` throws every fragment radially outward with a net upward plume momentum, its blast energy scales with the square of the charge strength, and fragments outside the blast radius stay asleep |
 | `leaf` | the oak mask is a proper silhouette with veins; a dropped leaf falls at bounded speed, drifts sideways (flutters) and keeps an orthonormal frame; an unlit leaf keeps its fuel while an ignited one burns down to nothing |
 
-The dashboard above is produced by `demos/demo.cpp` and shows, with no tuning:
-decaying restitution bounces, quadratic drag shortening a projectile's range, a
-tumbling box settling as its kinetic energy spikes-then-decays to zero, and a rod
-pendulum tracing a constant-radius arc.
+The verification dashboard above is produced by `demos/demo.cpp` (`./build/demo
+docs/physics_demo.svg`) and shows, with no tuning: decaying restitution bounces,
+quadratic drag shortening a projectile's range, a tumbling box settling as its
+kinetic energy spikes-then-decays to zero, and a rod pendulum tracing a
+constant-radius arc.
 
-## 3D OpenGL demos
+## Rendering
 
-Three interactive real-time demos live in `demos/` and render with a small
-modern-OpenGL pipeline (`demos/common/`): directional-light **shadow mapping**
-(PCF), **Cook-Torrance PBR**, 4× **MSAA** and **ACES** tonemapping.
+The 3D demos share a small modern-OpenGL pipeline (`demos/common/`): directional-light
+**shadow mapping** (PCF), **Cook-Torrance PBR**, 4× **MSAA** and **ACES** tonemapping,
+plus the screen-space fluid surface for SPH liquids.
 
-| Demo | What it shows |
-|------|---------------|
-| `rigid3d` | boxes and spheres dropping and piling up — the engine's rigid bodies, collision detection and contact resolver in 3D |
-| `cloth3d` | a woven sheet draping over a sphere and pooling on the floor (`phys::Cloth`), two-sided fabric shading with sheen |
-| `hair3d`  | ~3400 simulated guide strands → **24k rendered strands** via clumping (`phys::Hair`), **Kajiya-Kay** anisotropic shading, gusting wind |
-| `clothesline3d` | garments pinned along a sagging string, hanging and swaying in a breeze (`phys::Cloth`) |
-| `destruction3d` | a solid block shattered by a wrecking ball — **granite** chunks or **wood** splinters (`phys::fracture`) |
-| `explosion3d` | a **concrete block detonated** — **Voronoi-fractured into ~78 irregular convex chunks** (not boxes) blasted radially outward by `Destructible::detonate`, colliding via GJK/EPA and settling into a rubble field, with an emissive fireball (blackbody ramp, HDR-bloomed) and a rising dust plume ([`docs/explosion.mp4`](docs/explosion.mp4)) |
-| `bulletglass3d` | a **bullet through a pane of glass** — the window is pre-fractured with a realistic **impact pattern** (punched hole, radial spokes, concentric rings, fine shards at the entry, coarse plates at the rim) welded until the shot lands; the bullet punches through, the shards near the hole spall forward while the pane cracks free and falls, drawn as real **transparent Fresnel-edged glass** ([`docs/bulletglass.mp4`](docs/bulletglass.mp4)) |
-| `bulletbarrel3d` | a **slow-motion chain reaction** — a bullet drifts through a glass window in bullet-time trailing a glowing **corkscrew vapor spiral**, shatters the pane (impact fracture), carries on and strikes one of **three hollow explosive barrels**; on the hit time ramps back to normal, the barrel bursts into **small irregular Voronoi metal shards** (shell fracture) and its blast **fuses the neighbouring barrels into a staggered chain explosion**, together shattering the crates, pillars and blocks around them. Four fracture types in one shot (glass impact + barrel shell + object Voronoi), all convex/GJK-EPA, contained by the room walls, with HDR fireballs + dust ([`docs/bulletbarrel.mp4`](docs/bulletbarrel.mp4)) |
-| `bulletproofglass3d` | a **bullet stopped by bulletproof (laminated) glass** — the same impact fracture pattern, but the shards stay bonded so the pane holds; the round is arrested at the surface and a **milky-white crazed crater** (pulverized centre, radial + concentric cracks) spreads from the hit and fades to clear glass, while the spent, flattened bullet drops down the face ([`docs/bulletproofglass.mp4`](docs/bulletproofglass.mp4)) |
-| `roomblast3d` | a **room full of objects and an explosion** — a block, pillars and a slab, each **Voronoi-fractured** into welded convex chunks, are shattered by a central charge; the fragments blast across an enclosed room and ricochet off its 6 walls (convex hull vs half-space, so nothing tunnels out) before settling into a coloured debris field, under a cutaway view with fireball + dust ([`docs/roomblast.mp4`](docs/roomblast.mp4)) |
-| `burn3d` | a hanging **antique world map** — a scan of the 1900 *Larousse* planisphere (public domain), texture-mapped onto the cloth — lit at one corner burns diagonally: a fire-propagation cellular automaton (`phys::BurningPaper`) drives a glowing ragged front that chars the print to black, with curling, holes and rising smoke + embers, while a light gusting breeze + travelling-wave `flutter` make the sheet undulate as it burns |
-| `harmonics3d` | six coil springs strung between posts, each ringing in a pure normal mode (1…6 antinodes) of a coupled spring-mass chain (`phys::SpringChain`) — the **harmonic series** as standing waves, the higher modes visibly faster; each coil is a helix swept along the live masses ([`docs/spring_harmonics.mp4`](docs/spring_harmonics.mp4)) |
-| `nonnewtonian3d` | the same heavy ball dropped into two SPH troughs — shear-thickening **oobleck** vs **water** (`phys::SPHFluid`): the oobleck's viscosity spikes under the impact's shear and absorbs the ball with barely a splash, while the water erupts in a crown. Drawn as a smooth screen-space surface ([`docs/nonnewtonian.mp4`](docs/nonnewtonian.mp4)) |
-| `lava3d` | **hyper-real lava** — a hot shear-thinning Bingham fluid (`phys::Rheology::lava`) poured down a tilted channel and flowing around a stone **cylinder**, splitting and rejoining in its wake; a per-particle temperature drives a molten blackbody glow (yellow-white vent → dark crust) over the screen-space fluid surface ([`docs/lava.mp4`](docs/lava.mp4)) |
-| `galton3d` | a **Galton board** (bean machine / quincunx): 170 balls stream through a triangular peg lattice and pile into the bins as a **bell curve**, all on the engine's rigid-body collision resolver (spheres, immovable peg spheres, box bins, half-space walls) — the central limit theorem in action ([`docs/galton.mp4`](docs/galton.mp4)) |
-| `articulation3d` | a Featherstone reduced-coordinate chain released from horizontal whips and swings as a multi-pendulum ([`docs/articulation.mp4`](docs/articulation.mp4)) |
-| `softbody3d` | tetrahedral co-rotational **FEM jelly cubes** of varying stiffness drop and squash — softest pancakes, stiffest holds its cube ([`docs/softbody.mp4`](docs/softbody.mp4)) |
-| `constraints3d` | a **conveyor belt** drags crates along and off the end into a pile while a crosswind field nudges them ([`docs/constraints.mp4`](docs/constraints.mp4)) |
-| `robotics3d` | a serial arm tracks a moving target with **Jacobian IK** while a **lidar** fan scans the surrounding pillars ([`docs/robotics.mp4`](docs/robotics.mp4)) |
-| `convex3d` | faceted **convex-hull gems** and cubes tumble and stack via GJK/EPA, with analytic cylinders and cones resting on the ground ([`docs/convex.mp4`](docs/convex.mp4)) |
-| `stack3d` | a brick **pyramid** stands stable on the warm-started manifold solver, then a heavy ball plows through and scatters the crates ([`docs/stacking.mp4`](docs/stacking.mp4)) |
-| `gpu_fluid3d` | a **GPU** SPH dam-break — ~905k fine particles simulated entirely on the RTX 5090 (`phys::gpu::GpuSPH`), read back and drawn as a screen-space fluid surface so the liquid reads as a continuous body, not spheres ([`docs/gpu_fluid.mp4`](docs/gpu_fluid.mp4)) |
-| `waterfall3d` | a **GPU waterfall with real fluid dynamics** — **~2.4M** WCSPH particles (`phys::gpu::GpuSPH`) pour off a clifftop reservoir and plunge into a pool, with **surface-tension cohesion** holding the falling curtain together and **box (SDF) obstacles** for the cliff/floor/lip. It's a **recirculating** source/sink — particles that overflow the pool's front lip and drain respawn at the clifftop, so a fixed particle budget sustains a continuous fall. The water body renders as a screen-space surface graded from **clear blue-green** to **aerated whitewater** by a per-particle whitewater fraction (density + speed), with a light **foam-mist** billboard overlay on the most aerated water — clear at the lip, frothing as it falls, white spray at the plunge ([`docs/waterfall.mp4`](docs/waterfall.mp4)) |
-| `coriolis3d` | the **Coriolis effect on a fluid**, side by side — two identical shallow tanks seen from above, each starting with a raised central mound of dyed water. In the **left** (inertial) tank the collapsing mound spreads symmetrically and its dye pinwheel stays radial; in the **right** (rotating, geophysical *f-plane*) tank the same outrush is deflected by the Coriolis force `a = -2·Ω×v` into a **spinning vortex that winds the dye into a spiral** — same setup, one knob (Ω), so the swirl is purely Coriolis. The dye is a passive scalar advected with the fluid ([`docs/coriolis.mp4`](docs/coriolis.mp4)) |
-| `em2d` | **Maxwell + Method of Moments** — a MoM-solved dipole current drives a 2-D FDTD run; renders the radiating magnetic field **H** (expanding wavefronts) with the electric field **E** as flow arrows, beside the MoM figure-8 radiation pattern and cosine current distribution ([`docs/em_antenna.mp4`](docs/em_antenna.mp4)) |
-| `antenna3d` | **3-D dipole antenna** — the MoM far-field drawn as a glowing 3-D radiation-pattern surface with the wire glowing along its current and pattern-modulated wavefronts radiating out; the dipole length sweeps 0.5λ→1.5λ so the pattern morphs from the classic donut to a multi-lobe pattern ([`docs/antenna3d.mp4`](docs/antenna3d.mp4)) |
-| `leaves3d` | **dozens of oak leaves spiralling down and burning** — tumbling-plate aerodynamics (`phys::FallingLeaf`) flutter each leaf down; it ignites partway and a combustion CA burns a glowing front across it, charring, curling and holing it before it is consumed, shedding smoke + embers. Leaves are **real oak-leaf photo textures** (a texture array; alpha defines each silhouette and drives the burn mask) ([`docs/burning_leaves.mp4`](docs/burning_leaves.mp4)) |
-| `wall3d` | a metal ball punches **through** a concrete wall, releasing only the fragments inside a jagged angle-modulated radius — the wall survives with a ragged hole |
-| `playground3d` | the framework-parity features in one scene: heightfield terrain, raycast **vehicle**, **character controller** hopping the dunes, motor-driven hinge **windmill**, **capsules** tumbling, and a **trigger zone** that lights up as the car passes ([`docs/playground.mp4`](docs/playground.mp4)) |
+## Design notes
 
-![rigid](docs/rigid3d.png)
-![cloth](docs/cloth3d.png)
-![hair](docs/hair3d.png)
-![clothesline](docs/clothesline.png)
-![granite](docs/destruction_granite.png)
-![wood](docs/destruction_wood.png)
-
-Rendered clips: [`cloth_drop.mp4`](docs/cloth_drop.mp4),
-[`hair_wind.mp4`](docs/hair_wind.mp4), [`clothesline.mp4`](docs/clothesline.mp4),
-[`destruction_granite.mp4`](docs/destruction_granite.mp4),
-[`destruction_wood.mp4`](docs/destruction_wood.mp4),
-[`wall_breakthrough.mp4`](docs/wall_breakthrough.mp4).
-
-`destruction3d` takes `--material granite|wood`; the block is pre-split into
-welded box fragments (`fractureBoxGrid`) that stay put until the ball's impact
-calls `Destructible::shatter`, which bursts them apart with a radial + directional
-impulse — from then on they are ordinary rigid bodies that collide and settle.
-
-`burn3d` texture-maps a scan of the **1900 Larousse world planisphere**
-("Planisphère des colonies européennes — Heure universelle", public domain, via
-Wikimedia Commons) onto the burning cloth. The image is packed as zlib-compressed
-RGB in `demos/assets/worldmap.pmz` and inflated at load, so run the demo from the
-repo root (`./build/burn3d`) where that path resolves. The fire CA drives the char
-(which blackens the print), holes and curl; the sheet texture is otherwise static.
-
-`leaves3d` uses **real oak-leaf photo textures** (public domain / CC, via Wikimedia
-Commons: a *Quercus rubra* autumn leaf plus *Quercus coccinea* scarlet-oak leaves
-recoloured into autumn tints). They're cut out to alpha, packed as a zlib-compressed
-RGBA texture array in `demos/assets/leaves.lefa`, and inflated at load — so run it
-from the repo root. Each leaf's alpha both draws its silhouette and, sampled on a
-grid, defines which cells can burn.
-
-```sh
-cmake --build build           # builds rigid3d, cloth3d, hair3d if GLFW/GLEW present
-./build/rigid3d               # drag to orbit, scroll to zoom, Esc to quit
-./build/cloth3d               # (hair3d likewise)
-./build/cloth3d --shot out.png [frames]        # headless still
-./build/cloth3d --video frames/f [nframes]     # headless image sequence for a video
-```
-
-Dependencies for the GL demos: **GLFW3, GLEW, GLM, zlib** (the engine and its
-tests need none of these). Screenshots are written with a built-in zlib PNG
-encoder; assemble a video from a `--video` sequence with any tool, e.g.
-`ffmpeg -framerate 60 -i frames/f_%04d.png -pix_fmt yuv420p out.mp4`.
-
-## Design notes / honest deviations
-
-- **Header-only, `real = double`.** One `typedef` in `precision.h` switches to
-  `float`; all maths goes through the `real_*` wrappers, as in the book.
-- **Sleep system.** Bodies deactivate when their recency-weighted motion drops
-  below `sleepEpsilon`. A body is constructed already above the threshold so it
-  doesn't sleep on frame 1 (the book sets this when a body is woken).
-- **Sphere-sphere contact point** uses the geometric overlap midpoint rather than
-  the book's `positionOne + midline·½` (which can fall behind the first sphere) —
-  more robust for the resolver's torque calculation.
-- **Box-box** generates one contact (deepest feature) per pair, per the book, so
-  large flat stacks rely on multiple frames to stabilise; point/edge and
-  face/vertex cases are both handled via the 15-axis separating-axis test.
+- **Header-only, `real = double`.** One `typedef` in `precision.h` switches the whole
+  engine to `float`; all maths goes through the `real_*` wrappers.
+- **Sleep system.** Bodies deactivate when their recency-weighted motion drops below
+  `sleepEpsilon`, and are constructed already above the threshold so they don't sleep
+  on frame 1.
+- **Sphere-sphere contact point** uses the geometric overlap midpoint (robust for the
+  resolver's torque calculation).
+- **Box-box** generates one contact (deepest feature) per pair via a 15-axis
+  separating-axis test, so large flat stacks stabilise over a few frames; the
+  warm-started manifold solver (`contacts2`) is used where persistent multi-point
+  contact matters.
+</content>
