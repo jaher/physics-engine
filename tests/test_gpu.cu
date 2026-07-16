@@ -149,5 +149,28 @@ int main() {
         CHECK(rgCoh < rgNo - 0.003);                                    // cohesion keeps the blob more compact
     }
 
+    // G) Coriolis (rotating frame): a lone particle with no other force conserves speed
+    //    and its velocity vector rotates at rate 2·|omega| (an inertial oscillation),
+    //    while with omega=0 it flies straight.
+    {
+        Params p = baseParams(0.10f);
+        p.gmin = make_float3(-3, -3, -3); p.gmax = make_float3(3, 3, 3);
+        p.grav = make_float3(0, 0, 0);
+        const float Om = 3.0f; const float dt = 1.0e-3f; const int N = 200;
+        std::vector<float3> pos = {make_float3(0, 0, 0)};
+        auto velAfter = [&](float3 om) {
+            Params pp = p; pp.omega = om; GpuSPH s; s.init(pos, pp); s.setVel({make_float3(0.5f, 0, 0)});
+            for (int k = 0; k < N; k++) s.step(dt);
+            std::vector<float3> v; s.downloadVel(v); s.free(); return v[0];
+        };
+        float3 vR = velAfter(make_float3(0, Om, 0));                     // rotating frame
+        float speed = std::sqrt(vR.x * vR.x + vR.y * vR.y + vR.z * vR.z);
+        float ang = std::atan2(vR.z, vR.x);
+        CHECK_NEAR(speed, 0.5, 0.03);                                    // Coriolis does no work → |v| conserved
+        CHECK_NEAR(ang, 2.0 * Om * (N * dt), 0.12);                      // velocity rotated by 2·omega·T
+        float3 vI = velAfter(make_float3(0, 0, 0));                      // inertial frame
+        CHECK_NEAR(vI.x, 0.5, 0.02); CHECK(std::fabs(vI.z) < 0.02);      // flies straight, no deflection
+    }
+
     return test::report("gpu");
 }

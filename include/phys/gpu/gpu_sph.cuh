@@ -19,6 +19,7 @@ __host__ __device__ inline float3 operator+(float3 a, float3 b) { return make_fl
 __host__ __device__ inline float3 operator-(float3 a, float3 b) { return make_float3(a.x - b.x, a.y - b.y, a.z - b.z); }
 __host__ __device__ inline float3 operator*(float3 a, float s)  { return make_float3(a.x * s, a.y * s, a.z * s); }
 __host__ __device__ inline float  dot3(float3 a, float3 b)      { return a.x * b.x + a.y * b.y + a.z * b.z; }
+__host__ __device__ inline float3 cross3(float3 a, float3 b)    { return make_float3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x); }
 
 // up to this many static axis-aligned box obstacles (cliff, ledge, pool floor, …)
 #define GPU_SPH_MAXBOX 8
@@ -34,6 +35,9 @@ struct Params {
     //     back into the emit AABB with emitVel (+jitter), so a fixed N sustains a
     //     continuous inflow — a waterfall source/sink without realloc (emitOn=0 → off) ---
     int emitOn; float3 emitMin, emitMax, emitVel; float recycleY;
+    // --- rotating reference frame: Coriolis acceleration a = -2·omega×v (0 → inertial
+    //     frame). Geophysical "f-plane": gravity stays vertical, no centrifugal term ---
+    float3 omega;
 };
 __constant__ Params P;
 
@@ -115,7 +119,11 @@ __global__ void forceK(const float4* sPos, const float4* sVel, const float* dens
 }
 __global__ void integrateK(float4* sPos, float4* sVel, const float4* acc, float dt, unsigned seed) {
     int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= P.n) return;
+    float dye = sPos[i].w;                                               // advected passive scalar (dye/tracer), rides in pos.w
     float3 v = make_float3(sVel[i].x + acc[i].x * dt, sVel[i].y + acc[i].y * dt, sVel[i].z + acc[i].z * dt);
+    float ow = sqrtf(dot3(P.omega, P.omega));                            // Coriolis: exact rotation of v about the omega axis (magnitude-preserving)
+    if (ow > 1e-8f) { float3 k = P.omega * (1.0f / ow); float th = -2.0f * ow * dt, c = cosf(th), s = sinf(th);
+        v = v * c + cross3(k, v) * s + k * (dot3(k, v) * (1.0f - c)); }
     float3 p = make_float3(sPos[i].x + v.x * dt, sPos[i].y + v.y * dt, sPos[i].z + v.z * dt);
     for (int b = 0; b < P.nBox; b++) collideBox(p, v, P.boxMin[b], P.boxMax[b], P.boxDamp, P.boxFric);   // solid cliff/ledge/floor
     float* pp = &p.x; float* vv = &v.x; const float* lo = &P.gmin.x; const float* hi = &P.gmax.x;
@@ -130,7 +138,7 @@ __global__ void integrateK(float4* sPos, float4* sVel, const float4* acc, float 
                         P.emitMin.z + (P.emitMax.z - P.emitMin.z) * a2);
         v = make_float3(P.emitVel.x + (a0 - 0.5f) * 0.25f, P.emitVel.y, P.emitVel.z + (a2 - 0.5f) * 0.25f);
     }
-    sPos[i] = make_float4(p.x, p.y, p.z, 0); sVel[i] = make_float4(v.x, v.y, v.z, 0);
+    sPos[i] = make_float4(p.x, p.y, p.z, dye); sVel[i] = make_float4(v.x, v.y, v.z, 0);   // keep the dye scalar with the particle
 }
 
 class GpuSPH {
@@ -140,7 +148,7 @@ public:
     float *dDens = 0, *dPres = 0; int *dHash = 0, *dIdx = 0, *dCellStart = 0, *dCellEnd = 0;
     int numCells = 0;
 
-    void init(const std::vector<float3>& pos, Params params) {
+    void init(const std::vector<float3>& pos, Params params, const std::vector<float>* dye = nullptr) {
         n = (int)pos.size(); p = params; p.n = n;
         p.h2 = p.h * p.h;
         p.cPoly6 = 315.0f / (64.0f * 3.14159265f * powf(p.h, 9));
@@ -149,7 +157,7 @@ public:
         p.cell = p.h;
         p.grid = make_int3(int((p.gmax.x - p.gmin.x) / p.cell) + 1, int((p.gmax.y - p.gmin.y) / p.cell) + 1, int((p.gmax.z - p.gmin.z) / p.cell) + 1);
         numCells = p.grid.x * p.grid.y * p.grid.z;
-        std::vector<float4> h4(n); for (int i = 0; i < n; i++) h4[i] = make_float4(pos[i].x, pos[i].y, pos[i].z, 0);
+        std::vector<float4> h4(n); for (int i = 0; i < n; i++) h4[i] = make_float4(pos[i].x, pos[i].y, pos[i].z, dye ? (*dye)[i] : 0.0f);
         cudaMalloc(&dPos, n * sizeof(float4)); cudaMalloc(&dVel, n * sizeof(float4));
         cudaMalloc(&dSort, n * sizeof(float4)); cudaMalloc(&dSortV, n * sizeof(float4)); cudaMalloc(&dAcc, n * sizeof(float4));
         cudaMalloc(&dDens, n * sizeof(float)); cudaMalloc(&dPres, n * sizeof(float));
@@ -173,6 +181,7 @@ public:
     }
     unsigned frame = 0;
     void step(float dt) {
+        cudaMemcpyToSymbol(P, &p, sizeof(Params));                       // this instance's params → supports several GpuSPH sharing __constant__ P
         buildGrid();
         densityK<<<blocks(), 256>>>(dSort, dCellStart, dCellEnd, dDens, dPres);
         forceK<<<blocks(), 256>>>(dSort, dSortV, dDens, dPres, dCellStart, dCellEnd, dAcc);
@@ -198,6 +207,16 @@ public:
     }
     // per-particle SPH density (low ⇒ airborne/aerated spray, high ⇒ dense bulk water)
     void downloadDens(std::vector<float>& out) { out.resize(n); cudaMemcpy(out.data(), dDens, n * sizeof(float), cudaMemcpyDeviceToHost); }
+    // positions + advected dye scalar (pos.w) — for Lagrangian tracer visualisation
+    void downloadPosDye(std::vector<float4>& out) { out.resize(n); cudaMemcpy(out.data(), dPos, n * sizeof(float4), cudaMemcpyDeviceToHost); }
+    void downloadVel(std::vector<float3>& out) {
+        std::vector<float4> h(n); cudaMemcpy(h.data(), dVel, n * sizeof(float4), cudaMemcpyDeviceToHost);
+        out.resize(n); for (int i = 0; i < n; i++) out[i] = make_float3(h[i].x, h[i].y, h[i].z);
+    }
+    void setVel(const std::vector<float3>& vel) {                       // seed initial velocities (init zeroes them)
+        std::vector<float4> h(n); for (int i = 0; i < n; i++) h[i] = make_float4(vel[i].x, vel[i].y, vel[i].z, 0);
+        cudaMemcpy(dVel, h.data(), n * sizeof(float4), cudaMemcpyHostToDevice);
+    }
     // CPU reference poly6 density at a host-space point (for correctness tests)
     static float cpuDensity(const std::vector<float3>& pos, int i, float h, float mass) {
         float h2 = h * h, c = 315.0f / (64.0f * 3.14159265f * powf(h, 9)), d = 0;
