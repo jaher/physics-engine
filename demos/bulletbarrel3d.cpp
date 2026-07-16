@@ -36,7 +36,8 @@ static gfx::Mesh makeCylinder(int seg = 34) {
 }
 
 struct Frag { std::unique_ptr<RigidBody> body; std::unique_ptr<CollisionConvex> hull; gfx::Mesh mesh; float rad; glm::vec3 colour;
-              int kind; bool active = false, locked = false; int pcalm = 0; };   // kind: 0 glass, 1 object, 2 barrel
+              int kind; int barrelId = -1; bool active = false, locked = false; int pcalm = 0; };   // kind: 0 glass, 1 object, 2 barrel
+struct Barrel { glm::vec3 c; bool exploded = false; double fuseT = -1; };        // fuseT: scheduled chain-explosion time
 
 struct Collider : ContactGenerator {
     std::vector<Frag>* fr; const CollisionPlane* walls; int nWalls; real fri, res;
@@ -117,28 +118,33 @@ int main(int argc, char** argv) {
             frags.push_back(std::move(f)); cells.push_back(std::move(cell));
         }
     };
-    // barrel (kind 2) + surrounding objects (kind 1)
-    const glm::vec3 barrelC(0.1f, 0.7f, 1.4f); const float barrelR = 0.42f, barrelHh = 0.7f;
-    {   // hollow barrel: its thin wall + end caps dice into small curved metal shards
-        unsigned bs = 55u; auto br = [&]() { bs = bs * 1103515245u + 12345u; return (float)(((bs >> 16) & 0x7fff) / 32767.0); };
-        for (auto& cell : cylinderShellFracture(barrelR, barrelHh, 0.03, 15, 5, true, 55u)) {
-            Frag f; f.kind = 2; f.rad = 0; for (auto& v : cell.verts) f.rad = std::max(f.rad, (float)v.magnitude());
+    // three hollow explosive barrels (kind 2) — each wall dices into small metal shards
+    const float barrelR = 0.42f, barrelHh = 0.7f; std::vector<Barrel> barrels;
+    auto addBarrel = [&](glm::vec3 c, unsigned seed) {
+        int bid = (int)barrels.size(); barrels.push_back({c, false, -1});
+        unsigned bs = seed; auto br = [&]() { bs = bs * 1103515245u + 12345u; return (float)(((bs >> 16) & 0x7fff) / 32767.0); };
+        for (auto& cell : cylinderShellVoronoi(barrelR, barrelHh, 0.03, 18, 6, seed)) {   // irregular Voronoi-style metal shards (~2× finer)
+            Frag f; f.kind = 2; f.barrelId = bid; f.rad = 0; for (auto& v : cell.verts) f.rad = std::max(f.rad, (float)v.magnitude());
             f.body = std::make_unique<RigidBody>(); f.body->setMass(std::max(1e-3, cell.volume * 5.0));
             Matrix3 I; for (int k = 0; k < 9; k++) I.data[k] = cell.inertiaUnit.data[k] * 5.0; for (int k : {0, 4, 8}) I.data[k] = std::max(I.data[k], (real)1e-6); f.body->setInertiaTensor(I);
-            f.body->setPosition(Vector3(barrelC.x + cell.site.x, barrelC.y + cell.site.y, barrelC.z + cell.site.z));
+            f.body->setPosition(Vector3(c.x + cell.site.x, c.y + cell.site.y, c.z + cell.site.z));
             f.body->setAcceleration(0, -9.81, 0); f.body->setDamping(0.55, 0.5); f.body->calculateDerivedData(); f.body->setAwake(false);
             f.hull = std::make_unique<CollisionConvex>(); f.hull->body = f.body.get(); f.hull->vertices = cell.verts;
-            f.colour = (br() < 0.55f) ? glm::vec3(0.50, 0.17, 0.14) + glm::vec3((br() - 0.5f) * 0.06f)    // red paint
-                                      : glm::vec3(0.34, 0.34, 0.37) + glm::vec3((br() - 0.5f) * 0.05f);   // bare torn metal
+            f.colour = (br() < 0.55f) ? glm::vec3(0.50, 0.17, 0.14) + glm::vec3((br() - 0.5f) * 0.06f)
+                                      : glm::vec3(0.34, 0.34, 0.37) + glm::vec3((br() - 0.5f) * 0.05f);
             frags.push_back(std::move(f)); cells.push_back(std::move(cell));
         }
-    }
+    };
+    addBarrel(glm::vec3(0.1f, 0.7f, 1.4f), 55u);        // the bullet's target
+    addBarrel(glm::vec3(-1.95f, 0.7f, 2.9f), 61u);
+    addBarrel(glm::vec3(2.05f, 0.7f, 3.0f), 67u);
+    // surrounding objects (kind 1), clear of the barrels
     glm::vec3 grey(0.52, 0.51, 0.49), sand(0.60, 0.49, 0.31), slate(0.42, 0.43, 0.47);
-    addChunks(Vector3(-1.9, 0.6, 2.1),  Vector3(0.60, 0.60, 0.60), 26, 2.4, grey, 1, 13u);
-    addChunks(Vector3(1.9, 1.15, 2.4),  Vector3(0.36, 1.15, 0.36), 22, 2.2, sand, 1, 21u);
-    addChunks(Vector3(-1.3, 0.55, 3.5), Vector3(0.55, 0.55, 0.55), 22, 2.3, grey, 1, 29u);
-    addChunks(Vector3(0.5, 0.4, 3.7),   Vector3(1.00, 0.40, 0.65), 28, 2.3, slate, 1, 41u);
-    addChunks(Vector3(2.9, 1.05, 3.3),  Vector3(0.34, 1.05, 0.34), 20, 2.2, sand, 1, 47u);
+    addChunks(Vector3(-3.6, 1.15, 2.4), Vector3(0.36, 1.15, 0.36), 20, 2.2, sand, 1, 13u);
+    addChunks(Vector3(0.1, 0.55, 3.9),  Vector3(0.55, 0.55, 0.55), 22, 2.3, grey, 1, 21u);
+    addChunks(Vector3(3.7, 1.1, 2.5),   Vector3(0.34, 1.1, 0.34), 20, 2.2, sand, 1, 29u);
+    addChunks(Vector3(-0.7, 0.4, 4.5),  Vector3(1.00, 0.40, 0.65), 26, 2.3, slate, 1, 41u);
+    addChunks(Vector3(-3.4, 0.55, 4.2), Vector3(0.55, 0.55, 0.55), 20, 2.3, grey, 1, 47u);
 
     World world(24000);
     for (auto& f : frags) world.getRigidBodies().push_back(f.body.get());
@@ -149,7 +155,8 @@ int main(int argc, char** argv) {
     std::vector<Puff> puffs; unsigned pcs = 91u; auto cr = [&]() { pcs = pcs * 1103515245u + 12345u; return (float)(((pcs >> 16) & 0x7fff) / 32767.0); };
     glm::vec3 bpos(impact.x, impact.y, -3.0f); glm::vec3 bvel(0, 0, 16.0f); const float bR = 0.05f;
     bool glassBroke = false, boom = false; double simT = 0, boomT = -1;
-    const float glassZ = paneC.z, barrelHitZ = barrelC.z - barrelR + 0.14f;   // detonate once slightly inside the drum
+    const float glassZ = paneC.z, barrelHitZ = barrels[0].c.z - barrelR + 0.14f;   // detonate once slightly inside the drum
+    const float chainRadius = 3.6f;   // an exploding barrel ignites unexploded barrels within this range
     // slow-motion "bullet time" (ramps back to real speed after the blast) + spiral trail
     double timeScale = 0.16; float bulletDist = 0, spinPhase = 0; const float trailR = 0.04f, spinFreq = 17.0f;   // helix ≈ bullet radius
     std::vector<glm::vec4> trail;   // xyz = corkscrew point, w = brightness
@@ -160,29 +167,38 @@ int main(int argc, char** argv) {
             Vector3 p = f.body->getPosition(); real du = p.x - impact.x, dv = p.y - impact.y, dist = std::sqrt(du * du + dv * dv);
             Vector3 rad = dist > 1e-4 ? Vector3(du, dv, 0) * (1.0 / dist) : Vector3(0, 1, 0);
             Vector3 v = Vector3(0, 0, 1) * (2.6 / (dist + 0.18)) + rad * (1.0 / (dist + 0.25)) + Vector3(rr() - 0.5, rr() - 0.5, rr() - 0.5) * 0.6;
-            f.active = true; f.body->setAwake(true); f.body->setVelocity(v);
+            f.active = true; f.body->setAwake(true); f.body->setCanSleep(false); f.body->setVelocity(v);
             f.body->setRotation(Vector3(rr() - 0.5, rr() - 0.5, rr() - 0.5) * (4.0 + 8.0 / (dist + 0.3)));
         }
     };
-    auto detonate = [&]() {
-        unsigned st = 9u; auto rr = [&]() { st = st * 1103515245u + 12345u; return (real)(((st >> 16) & 0x7fff) / 32767.0); };
-        Vector3 bc(barrelC.x, barrelC.y, barrelC.z);
+    auto explodeBarrel = [&](int bi) {
+        if (barrels[bi].exploded) return;
+        barrels[bi].exploded = true; if (boomT < 0) { boomT = simT; boom = true; }
+        unsigned st = 9u + bi * 7; auto rr = [&]() { st = st * 1103515245u + 12345u; return (real)(((st >> 16) & 0x7fff) / 32767.0); };
+        glm::vec3 bcg = barrels[bi].c; Vector3 bc(bcg.x, bcg.y, bcg.z);
         for (auto& f : frags) {
+            if (f.kind == 2 && f.barrelId != bi && !barrels[f.barrelId].exploded) continue;   // another intact barrel — leave it whole
             Vector3 dr = f.body->getPosition() - bc; real dist = dr.magnitude();
+            if (dist > 4.2 && !f.active) continue;                                             // out of range and not already flying
             Vector3 dir = dist > 1e-6 ? dr * (1.0 / dist) : Vector3(0, 1, 0);
             real speed = (f.kind == 2 ? 13.0 : 11.0) / (dist + 0.5);
             Vector3 blast = dir * speed + Vector3(0, 0.45 * speed + 1.5, 0);
-            if (f.kind == 0) { f.body->setVelocity(f.body->getVelocity() + blast * 0.5); }   // push falling glass
-            else { f.active = true; f.body->setAwake(true); f.body->setVelocity(blast + Vector3(rr() - 0.5, rr() - 0.5, rr() - 0.5) * 2.0);
-                   f.body->setRotation(Vector3(rr() - 0.5, rr() - 0.5, rr() - 0.5) * 16.0); }
+            bool mine = (f.kind == 2 && f.barrelId == bi);
+            if (f.active) f.body->setVelocity(f.body->getVelocity() + blast * (mine ? 1.0 : 0.7));   // push already-flying debris
+            else if (mine || f.kind != 2) { f.active = true; f.body->setAwake(true); f.body->setCanSleep(false);   // shrapnel / objects & glass in range; no auto-sleep (else it freezes mid-air at its apex)
+                f.body->setVelocity(blast + Vector3(rr() - 0.5, rr() - 0.5, rr() - 0.5) * 2.0);
+                f.body->setRotation(Vector3(rr() - 0.5, rr() - 0.5, rr() - 0.5) * 16.0); }
         }
         auto rdir = [&]() { glm::vec3 d(cr() - 0.5f, cr() - 0.5f, cr() - 0.5f); float m = glm::length(d); return m > 1e-4f ? d / m : glm::vec3(0, 1, 0); };
-        for (int i = 0; i < 240; i++) { Puff q; q.fire = true; q.p = barrelC + rdir() * (0.2f + cr() * 1.3f);
+        for (int i = 0; i < 230; i++) { Puff q; q.fire = true; q.p = bcg + rdir() * (0.2f + cr() * 1.3f);
             q.v = rdir() * (4.0f + cr() * 11.0f) + glm::vec3(0, 2.5f + cr() * 3.5f, 0);
             q.life = q.life0 = 0.32f + cr() * 0.7f; q.size = 0.22f + cr() * 0.55f; q.grow = 1.8f + cr() * 1.6f; q.buoy = 4.6f + cr() * 3.0f; puffs.push_back(q); }
-        for (int i = 0; i < 200; i++) { Puff q; q.fire = false; q.p = barrelC + rdir() * (0.15f + cr() * 1.2f);
+        for (int i = 0; i < 190; i++) { Puff q; q.fire = false; q.p = bcg + rdir() * (0.15f + cr() * 1.2f);
             q.v = rdir() * (1.4f + cr() * 3.5f) + glm::vec3(0, 2.4f + cr() * 2.0f, 0);
             q.life = q.life0 = 1.6f + cr() * 2.4f; q.size = 0.24f + cr() * 0.45f; q.grow = 0.9f + cr() * 0.7f; q.buoy = 2.0f + cr() * 1.4f; puffs.push_back(q); }
+        for (int j = 0; j < (int)barrels.size(); j++) if (j != bi && !barrels[j].exploded && barrels[j].fuseT < 0) {   // chain: light nearby barrels
+            float d = glm::length(barrels[j].c - bcg); if (d < chainRadius) barrels[j].fuseT = simT + 0.12 + d * 0.05;
+        }
     };
     auto stepPhysics = [&]() {
         if (boom) timeScale = std::min(1.0, timeScale + 0.035);              // ramp back to real speed after the blast
@@ -196,18 +212,22 @@ int main(int argc, char** argv) {
             trail.push_back(glm::vec4(bpos - h * trailR, 1.0f));
             trail.push_back(glm::vec4(bpos, 0.7f));
             if (!glassBroke && bpos.z >= glassZ) { breakGlass(); glassBroke = true; bvel *= 0.85f; }
-            if (bpos.z >= barrelHitZ) { detonate(); boom = true; boomT = simT; }
+            if (bpos.z >= barrelHitZ) explodeBarrel(0);                       // bullet ignites the first barrel
         }
+        for (int j = 0; j < (int)barrels.size(); j++)                         // fuses fire the chain
+            if (!barrels[j].exploded && barrels[j].fuseT >= 0 && simT >= barrels[j].fuseT) explodeBarrel(j);
         float tfade = boom ? 0.90f : 0.996f;                                // trail lingers in flight, burns off in the blast
         for (auto& t : trail) t.w *= tfade;
         trail.erase(std::remove_if(trail.begin(), trail.end(), [](const glm::vec4& t) { return t.w < 0.04f; }), trail.end());
         if (trail.size() > 1500) trail.erase(trail.begin(), trail.begin() + (trail.size() - 1500));
-        for (auto& f : frags) {                                                 // settle: bleed slow, lock at rest
+        for (auto& f : frags) {                                                 // settle: only bleed/lock NEAR the ground so airborne debris falls freely (never freezes mid-air)
             if (!f.active || f.locked) { if (f.locked) { f.body->setVelocity(Vector3()); f.body->setRotation(Vector3()); } continue; }
+            if (f.body->getPosition().y >= 1.9) { f.pcalm = 0; continue; }       // still in the air — let gravity bring it down
             real v = f.body->getVelocity().magnitude(), w = f.body->getRotation().magnitude();
             if (v < 0.55) { f.body->setVelocity(f.body->getVelocity() * 0.83); f.body->setRotation(f.body->getRotation() * 0.72); }
             if (v < 0.32 && w < 0.85) f.pcalm++; else f.pcalm = 0;
-            if (f.pcalm > 14 || (boom && simT - boomT > 3.5)) { f.body->setVelocity(Vector3()); f.body->setRotation(Vector3()); f.body->setAcceleration(0, 0, 0);
+            if (f.pcalm > 14 || (boom && simT - boomT > 4.4)) {
+                f.body->setVelocity(Vector3()); f.body->setRotation(Vector3()); f.body->setAcceleration(0, 0, 0);
                 f.body->setInverseMass(0); Matrix3 bi; bi.setInertiaTensorCoeffs(1e12, 1e12, 1e12); f.body->setInertiaTensor(bi); f.body->calculateDerivedData(); f.body->setAwake(false); f.locked = true; }
         }
         float fdt = (float)simDt;
@@ -225,7 +245,7 @@ int main(int argc, char** argv) {
     gfx::Mesh pane; { std::vector<float> v = {-PW, -PH, 0, 0, 0, -1, PW, -PH, 0, 0, 0, -1, PW, PH, 0, 0, 0, -1, -PW, PH, 0, 0, 0, -1};
         std::vector<unsigned> idx = {0, 1, 2, 0, 2, 3}; pane.upload(v, idx); }
 
-    gfx::OrbitCamera cam; cam.target = glm::vec3(0.0, 1.0, 0.5); cam.dist = 7.6f; cam.yaw = 2.32f; cam.pitch = 0.22f;
+    gfx::OrbitCamera cam; cam.target = glm::vec3(0.1, 1.0, 2.0); cam.dist = 9.6f; cam.yaw = 2.38f; cam.pitch = 0.24f;
     glm::mat4 proj = glm::perspective(glm::radians(43.0f), (float)W / H, 0.05f, 100.0f);
     glfwSetWindowUserPointer(app.win, &cam);
     glfwSetScrollCallback(app.win, [](GLFWwindow* w, double, double dy) { auto* c = (gfx::OrbitCamera*)glfwGetWindowUserPointer(w); c->dist *= (dy > 0 ? 0.9f : 1.1f); });
@@ -290,7 +310,7 @@ void main(){ vec3 N=normalize(vN); vec3 V=normalize(uCam-vW); if(dot(N,V)<0.0) N
         r.setLightForScene(glm::vec3(0, 1.4, 0.8), 8.0f);
         r.beginShadow();
         for (auto& f : frags) if (f.kind != 0 && (f.active || f.kind == 1)) r.shadowDraw(f.mesh, glmFromPhys(f.body->getTransform()));
-        if (!boom) r.shadowDraw(cyl, glm::scale(glm::translate(glm::mat4(1), barrelC), glm::vec3(barrelR, barrelHh * 2, barrelR)));
+        for (auto& b : barrels) if (!b.exploded) r.shadowDraw(cyl, glm::scale(glm::translate(glm::mat4(1), b.c), glm::vec3(barrelR, barrelHh * 2, barrelR)));
         r.endShadow();
         r.beginScene(cam.view(), proj, cam.eye());
         glClearColor(0.16f, 0.17f, 0.20f, 1.0f); glClear(GL_COLOR_BUFFER_BIT);
@@ -307,10 +327,10 @@ void main(){ vec3 N=normalize(vN); vec3 V=normalize(uCam-vW); if(dot(N,V)<0.0) N
             float rough = f.kind == 2 ? 0.42f : 0.8f, metal = f.kind == 2 ? 0.65f : 0.0f;
             r.drawPBR(r.pSolid, f.mesh, glmFromPhys(f.body->getTransform()), f.colour, rough, metal);
         }
-        if (!boom) {   // an open-top hollow drum: red wall, band, dark recessed interior
-            r.drawPBR(r.pSolid, cyl, glm::scale(glm::translate(glm::mat4(1), barrelC), glm::vec3(barrelR, barrelHh * 2, barrelR)), glm::vec3(0.55, 0.15, 0.11), 0.45f, 0.4f);
-            r.drawPBR(r.pSolid, cyl, glm::scale(glm::translate(glm::mat4(1), barrelC + glm::vec3(0, barrelHh * 0.4f, 0)), glm::vec3(barrelR * 1.02f, 0.05f, barrelR * 1.02f)), glm::vec3(0.10, 0.09, 0.09), 0.6f, 0.3f);
-            r.drawPBR(r.pSolid, cyl, glm::scale(glm::translate(glm::mat4(1), barrelC + glm::vec3(0, barrelHh - 0.03f, 0)), glm::vec3(barrelR * 0.90f, 0.05f, barrelR * 0.90f)), glm::vec3(0.08, 0.07, 0.07), 0.85f, 0.0f); }   // hollow opening
+        for (auto& b : barrels) if (!b.exploded) {   // each intact barrel: an open-top hollow drum (red wall, band, dark recessed interior)
+            r.drawPBR(r.pSolid, cyl, glm::scale(glm::translate(glm::mat4(1), b.c), glm::vec3(barrelR, barrelHh * 2, barrelR)), glm::vec3(0.55, 0.15, 0.11), 0.45f, 0.4f);
+            r.drawPBR(r.pSolid, cyl, glm::scale(glm::translate(glm::mat4(1), b.c + glm::vec3(0, barrelHh * 0.4f, 0)), glm::vec3(barrelR * 1.02f, 0.05f, barrelR * 1.02f)), glm::vec3(0.10, 0.09, 0.09), 0.6f, 0.3f);
+            r.drawPBR(r.pSolid, cyl, glm::scale(glm::translate(glm::mat4(1), b.c + glm::vec3(0, barrelHh - 0.03f, 0)), glm::vec3(barrelR * 0.90f, 0.05f, barrelR * 0.90f)), glm::vec3(0.08, 0.07, 0.07), 0.85f, 0.0f); }   // hollow opening
         r.drawPBR(r.pSolid, sphere, glm::scale(glm::translate(glm::mat4(1), bpos), glm::vec3(bR)), glm::vec3(0.05, 0.05, 0.06), 0.3f, 0.8f);   // bullet
 
         drawPuffs(eye, R, U);
@@ -338,7 +358,9 @@ void main(){ vec3 N=normalize(vN); vec3 V=normalize(uCam-vW); if(dot(N,V)<0.0) N
         r.endScene();
     };
 
-    if (video) { for (int f = 0; f < frames; f++) { cam.yaw += 0.45f / frames; renderFrame();
+    // orbit AWAY from the +x wall the camera starts just outside of (increasing yaw would
+    // sweep the eye down through that wall slab and briefly fill the view with it)
+    if (video) { for (int f = 0; f < frames; f++) { cam.yaw -= 0.45f / frames; renderFrame();
             char p[512]; std::snprintf(p, sizeof(p), "%s_%04d.png", video, f); r.screenshot(p); for (int s = 0; s < 2; s++) stepPhysics(); }
         std::printf("wrote %d frames (%zu frags)\n", frames, frags.size()); return 0; }
     if (headless) { for (int i = 0; i < frames * 2; i++) stepPhysics(); renderFrame(); r.screenshot(shot); std::printf("wrote %s\n", shot); return 0; }

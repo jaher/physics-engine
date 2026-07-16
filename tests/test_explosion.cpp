@@ -149,5 +149,20 @@ int main() {
         CHECK(cylinderShellFracture(R, Hh, wt, nc, nr, true, 7u).size() == size_t(nc * nr + 2 * nc));   // + end caps
     }
 
+    // H) Voronoi-style shell fracture: IRREGULAR convex shards that still tile the wall.
+    {
+        real R = 0.5, Hh = 0.7, wt = 0.04;
+        auto sh = cylinderShellVoronoi(R, Hh, wt, 13, 4, 7u);
+        CHECK(sh.size() > 30);                                        // ~52 irregular shards
+        real vol = 0; int bad = 0, mn = 1 << 30, mx = 0;
+        for (auto& c : sh) { vol += c.volume;
+            if (!(c.inertiaUnit.data[0] > 0 && c.inertiaUnit.data[4] > 0 && c.inertiaUnit.data[8] > 0)) bad++;
+            mn = std::min(mn, (int)c.verts.size()); mx = std::max(mx, (int)c.verts.size()); }
+        real shell = M_PI * ((R + wt / 2) * (R + wt / 2) - (R - wt / 2) * (R - wt / 2)) * (2 * Hh);
+        CHECK(vol / shell > 0.95 && vol / shell < 1.05);             // tiles the shell
+        CHECK(bad == 0);
+        CHECK(mx > mn);                                              // varied shapes (not a uniform grid)
+    }
+
     return test::report("explosion");
 }
