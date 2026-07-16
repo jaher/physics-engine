@@ -20,12 +20,43 @@ __host__ __device__ inline float3 operator-(float3 a, float3 b) { return make_fl
 __host__ __device__ inline float3 operator*(float3 a, float s)  { return make_float3(a.x * s, a.y * s, a.z * s); }
 __host__ __device__ inline float  dot3(float3 a, float3 b)      { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
+// up to this many static axis-aligned box obstacles (cliff, ledge, pool floor, …)
+#define GPU_SPH_MAXBOX 8
+
 struct Params {
     int n; float h, h2, mass, rho0, stiff, visc, xsph;
     float cPoly6, cSpiky, cVisc;
+    float surfTens;                 // cohesion / surface tension (Becker–Teschner): holds free-falling streams & droplets together
     float3 gmin, gmax, grav; float cell; int3 grid; float rest, wallDamp;
+    // --- solid box obstacles the fluid collides with (0 boxes → disabled) ---
+    int nBox; float3 boxMin[GPU_SPH_MAXBOX], boxMax[GPU_SPH_MAXBOX]; float boxDamp, boxFric;
+    // --- recirculating emitter: a particle that sinks past recycleY is teleported
+    //     back into the emit AABB with emitVel (+jitter), so a fixed N sustains a
+    //     continuous inflow — a waterfall source/sink without realloc (emitOn=0 → off) ---
+    int emitOn; float3 emitMin, emitMax, emitVel; float recycleY;
 };
 __constant__ Params P;
+
+// deterministic per-particle hash → 3 uniforms in [0,1) (seeded per step so respawns spread)
+__device__ inline void hash3(unsigned s, float& a, float& b, float& c) {
+    s ^= s >> 16; s *= 0x7feb352du; s ^= s >> 15; s *= 0x846ca68bu; s ^= s >> 16;
+    a = (s & 0xffff) / 65535.0f;
+    unsigned t = s * 2654435761u; b = (t & 0xffff) / 65535.0f;
+    unsigned u = t * 40503u;      c = (u & 0xffff) / 65535.0f;
+}
+// push a particle out of a solid box along its least-penetration face; reflect the
+// normal velocity (damped) and shear the tangential (friction)
+__device__ inline void collideBox(float3& p, float3& v, float3 bmn, float3 bmx, float damp, float fric) {
+    if (p.x <= bmn.x || p.x >= bmx.x || p.y <= bmn.y || p.y >= bmx.y || p.z <= bmn.z || p.z >= bmx.z) return;
+    float dxl = p.x - bmn.x, dxh = bmx.x - p.x, dyl = p.y - bmn.y, dyh = bmx.y - p.y, dzl = p.z - bmn.z, dzh = bmx.z - p.z;
+    float m = fminf(fminf(fminf(dxl, dxh), fminf(dyl, dyh)), fminf(dzl, dzh));
+    if      (m == dxl) { p.x = bmn.x; v.x = -v.x * damp; v.y *= fric; v.z *= fric; }
+    else if (m == dxh) { p.x = bmx.x; v.x = -v.x * damp; v.y *= fric; v.z *= fric; }
+    else if (m == dyl) { p.y = bmn.y; v.y = -v.y * damp; v.x *= fric; v.z *= fric; }
+    else if (m == dyh) { p.y = bmx.y; v.y = -v.y * damp; v.x *= fric; v.z *= fric; }
+    else if (m == dzl) { p.z = bmn.z; v.z = -v.z * damp; v.x *= fric; v.y *= fric; }
+    else               { p.z = bmx.z; v.z = -v.z * damp; v.x *= fric; v.y *= fric; }
+}
 
 __device__ inline int3 cellOf(float3 p) {
     return make_int3(min(max(int((p.x - P.gmin.x) / P.cell), 0), P.grid.x - 1),
@@ -63,7 +94,7 @@ __global__ void forceK(const float4* sPos, const float4* sVel, const float* dens
                        const int* cellStart, const int* cellEnd, float4* acc) {
     int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= P.n) return;
     float3 pi = make_float3(sPos[i].x, sPos[i].y, sPos[i].z), vi = make_float3(sVel[i].x, sVel[i].y, sVel[i].z);
-    int3 c = cellOf(pi); float3 fp = make_float3(0, 0, 0), fv = make_float3(0, 0, 0);
+    int3 c = cellOf(pi); float3 fp = make_float3(0, 0, 0), fv = make_float3(0, 0, 0), fc = make_float3(0, 0, 0);
     for (int dz = -1; dz <= 1; dz++) for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
         int3 cc = make_int3(c.x + dx, c.y + dy, c.z + dz);
         if (cc.x < 0 || cc.y < 0 || cc.z < 0 || cc.x >= P.grid.x || cc.y >= P.grid.y || cc.z >= P.grid.z) continue;
@@ -75,19 +106,29 @@ __global__ void forceK(const float4* sPos, const float4* sVel, const float* dens
             fp = fp + rn * (-P.mass * (pres[i] + pres[j]) / (2 * dens[j]) * P.cSpiky * (P.h - rl) * (P.h - rl));
             float3 dv = make_float3(sVel[j].x - vi.x, sVel[j].y - vi.y, sVel[j].z - vi.z);
             fv = fv + dv * (P.visc * P.mass / dens[j] * P.cVisc * (P.h - rl));
+            if (P.surfTens > 0) { float hr = P.h2 - rl * rl; float w6 = P.cPoly6 * hr * hr * hr;   // cohesion: attract toward neighbours (poly6)
+                fc = fc + r * (-P.surfTens * P.mass * w6); }
         }
     }
-    float3 a = (fp + fv) * (1.0f / dens[i]) + P.grav;
+    float3 a = (fp + fv + fc) * (1.0f / dens[i]) + P.grav;
     acc[i] = make_float4(a.x, a.y, a.z, 0);
 }
-__global__ void integrateK(float4* sPos, float4* sVel, const float4* acc, float dt) {
+__global__ void integrateK(float4* sPos, float4* sVel, const float4* acc, float dt, unsigned seed) {
     int i = blockIdx.x * blockDim.x + threadIdx.x; if (i >= P.n) return;
     float3 v = make_float3(sVel[i].x + acc[i].x * dt, sVel[i].y + acc[i].y * dt, sVel[i].z + acc[i].z * dt);
     float3 p = make_float3(sPos[i].x + v.x * dt, sPos[i].y + v.y * dt, sPos[i].z + v.z * dt);
+    for (int b = 0; b < P.nBox; b++) collideBox(p, v, P.boxMin[b], P.boxMax[b], P.boxDamp, P.boxFric);   // solid cliff/ledge/floor
     float* pp = &p.x; float* vv = &v.x; const float* lo = &P.gmin.x; const float* hi = &P.gmax.x;
-    for (int a = 0; a < 3; a++) {                                        // box bounds with damping
+    for (int a = 0; a < 3; a++) {                                        // domain bounds with damping
         if (pp[a] < lo[a]) { pp[a] = lo[a]; vv[a] = -vv[a] * P.wallDamp; }
         if (pp[a] > hi[a]) { pp[a] = hi[a]; vv[a] = -vv[a] * P.wallDamp; }
+    }
+    if (P.emitOn && p.y < P.recycleY) {                                 // drained → respawn at the source (fixed-N recirculation)
+        float a0, a1, a2; hash3((unsigned)i * 2654435761u ^ seed, a0, a1, a2);
+        p = make_float3(P.emitMin.x + (P.emitMax.x - P.emitMin.x) * a0,
+                        P.emitMin.y + (P.emitMax.y - P.emitMin.y) * a1,
+                        P.emitMin.z + (P.emitMax.z - P.emitMin.z) * a2);
+        v = make_float3(P.emitVel.x + (a0 - 0.5f) * 0.25f, P.emitVel.y, P.emitVel.z + (a2 - 0.5f) * 0.25f);
     }
     sPos[i] = make_float4(p.x, p.y, p.z, 0); sVel[i] = make_float4(v.x, v.y, v.z, 0);
 }
@@ -130,11 +171,12 @@ public:
         cudaMemset(dCellStart, 0x7f, numCells * sizeof(int));
         reorder<<<blocks(), 256>>>(dHash, dIdx, dPos, dVel, dSort, dSortV, dCellStart, dCellEnd);
     }
+    unsigned frame = 0;
     void step(float dt) {
         buildGrid();
         densityK<<<blocks(), 256>>>(dSort, dCellStart, dCellEnd, dDens, dPres);
         forceK<<<blocks(), 256>>>(dSort, dSortV, dDens, dPres, dCellStart, dCellEnd, dAcc);
-        integrateK<<<blocks(), 256>>>(dSort, dSortV, dAcc, dt);
+        integrateK<<<blocks(), 256>>>(dSort, dSortV, dAcc, dt, frame++ * 2654435761u + 12345u);
         std::swap(dPos, dSort); std::swap(dVel, dSortV);                 // sorted arrays become current
     }
     void computeDensityNow() {                                          // grid + density on the current positions
@@ -146,6 +188,16 @@ public:
         std::vector<float4> h4(n); cudaMemcpy(h4.data(), dPos, n * sizeof(float4), cudaMemcpyDeviceToHost);
         out.resize(n); for (int i = 0; i < n; i++) out[i] = make_float3(h4[i].x, h4[i].y, h4[i].z);
     }
+    // positions + speed (for shading whitewater vs. calm pool). Speed via |vel|.
+    void downloadPosSpeed(std::vector<float4>& out) {
+        std::vector<float4> hp(n), hv(n);
+        cudaMemcpy(hp.data(), dPos, n * sizeof(float4), cudaMemcpyDeviceToHost);
+        cudaMemcpy(hv.data(), dVel, n * sizeof(float4), cudaMemcpyDeviceToHost);
+        out.resize(n);
+        for (int i = 0; i < n; i++) out[i] = make_float4(hp[i].x, hp[i].y, hp[i].z, sqrtf(hv[i].x * hv[i].x + hv[i].y * hv[i].y + hv[i].z * hv[i].z));
+    }
+    // per-particle SPH density (low ⇒ airborne/aerated spray, high ⇒ dense bulk water)
+    void downloadDens(std::vector<float>& out) { out.resize(n); cudaMemcpy(out.data(), dDens, n * sizeof(float), cudaMemcpyDeviceToHost); }
     // CPU reference poly6 density at a host-space point (for correctness tests)
     static float cpuDensity(const std::vector<float3>& pos, int i, float h, float mass) {
         float h2 = h * h, c = 315.0f / (64.0f * 3.14159265f * powf(h, 9)), d = 0;

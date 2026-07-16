@@ -29,7 +29,7 @@ feature family. Everything marked ✅ new is compile-tested and covered by
 | Sleeping / deactivation | all nine | ✅ (core) | `body.h` |
 | Springs, drag, buoyancy, aero | most | ✅ (core) | `fgen.h`, `pfgen.h` |
 | Cloth | PhysX, Bullet, MuJoCo(flex) | ✅ | `cloth.h` |
-| Fracture / destruction / **explosions** | PhysX (blast), Chrono | ✅ grid/jitter + **Voronoi convex chunks** + **impact/"bullet-hole" glass** + **hollow-cylinder shell (metal shards)** fracture + `detonate()` radial blast (see `demos/explosion3d.cpp`, `demos/bulletglass3d.cpp`, `demos/bulletbarrel3d.cpp`) | `fracture.h`, `voronoi.h`, `glassfrac.h`, `shellfrac.h` |
+| Fracture / destruction / **explosions** | PhysX (blast), Chrono | ✅ grid/jitter + **Voronoi convex chunks** + **impact/"bullet-hole" glass** + **hollow-cylinder shell fracture** (grid or Voronoi-irregular metal shards) + `detonate()` radial blast (see `demos/explosion3d.cpp`, `demos/bulletglass3d.cpp`, `demos/bulletbarrel3d.cpp`) | `fracture.h`, `voronoi.h`, `glassfrac.h`, `shellfrac.h` |
 | Determinism | Brax, MuJoCo, ODE | ✅ (fixed-step, no hidden state) | — |
 
 ## Second wave — closing the gap matrix
@@ -49,7 +49,7 @@ their own test suites (`bash tests/run_all.sh` → **434 assertions across 18 su
 | URDF/MJCF loading, IMU/lidar/force sensors, inverse dynamics, IK, tendons (Gazebo/Webots/MuJoCo) | ✅ all | `loader.h`, `robotics.h` | `robotics` (53) |
 | Differentiable physics (Brax/MJX), multithreaded solver, convex decomposition | ✅ forward-mode autodiff, island-parallel `std::thread` solver, V-HACD-lite | `autodiff.h`, `parallel.h`, `decompose.h` | `advanced` (27) |
 
-| GPU execution / massively-parallel sim (Brax/MJX/PhysX-GPU) | ✅ CUDA SPH solver — ~360k particles at ~0.18 ms/step on an RTX 5090 | `gpu/gpu_sph.cuh` | `gpu` (10, nvcc) |
+| GPU execution / massively-parallel sim (Brax/MJX/PhysX-GPU) | ✅ CUDA SPH solver — ~360k particles at ~0.19 ms/step on an RTX 5090; + surface-tension cohesion, box (SDF) obstacles and a recirculating emitter → a **2.4M-particle waterfall** (`demos/waterfall3d.cu`) | `gpu/gpu_sph.cuh` | `gpu` (18, nvcc) |
 | ROS/ROS2 middleware (Gazebo/Webots) | ✅ ROS2-compatible messages + node/pub/sub graph, rclcpp-bindable | `ros_bridge.h` | `ros` (19) |
 | Compound / multi-shape bodies (all nine) | ✅ aggregate mass + COM + parallel-axis inertia over child box/sphere primitives | `compound.h` | `compound` (12) |
 

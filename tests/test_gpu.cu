@@ -83,5 +83,71 @@ int main() {
         sph.free();
     }
 
+    // D) solid box obstacle: fluid dropped onto a raised platform settles ON it, never inside it
+    {
+        Params p = baseParams(0.05f);
+        p.gmin = make_float3(-0.5f, 0.f, -0.5f); p.gmax = make_float3(0.5f, 1.2f, 0.5f);
+        p.nBox = 1; p.boxDamp = 0.2f; p.boxFric = 0.5f;
+        p.boxMin[0] = make_float3(-0.25f, 0.20f, -0.25f); p.boxMax[0] = make_float3(0.25f, 0.50f, 0.25f);   // rock platform
+        auto pos = lattice(make_float3(-0.20f, 0.55f, -0.20f), make_float3(0.20f, 0.95f, 0.20f), 0.035f);
+        GpuSPH sph; sph.init(pos, p);
+        for (int s = 0; s < 400; s++) sph.step(1.0e-3f);
+        std::vector<float3> out; sph.download(out);
+        int inside = 0; bool finite = true;
+        for (auto& q : out) {
+            if (!std::isfinite(q.y)) finite = false;
+            if (q.x > p.boxMin[0].x + 1e-3f && q.x < p.boxMax[0].x - 1e-3f && q.y > p.boxMin[0].y + 3e-3f &&
+                q.y < p.boxMax[0].y - 3e-3f && q.z > p.boxMin[0].z + 1e-3f && q.z < p.boxMax[0].z - 1e-3f) inside++;
+        }
+        CHECK(finite);
+        CHECK(inside == 0);                                             // the box is solid — nothing penetrates it
+        sph.free();
+    }
+
+    // E) recirculating emitter: particles that sink past recycleY respawn in the emit AABB,
+    //    so the count is conserved and none linger below the drain plane
+    {
+        Params p = baseParams(0.05f);
+        p.gmin = make_float3(-0.4f, -0.5f, -0.4f); p.gmax = make_float3(0.4f, 1.1f, 0.4f);
+        p.emitOn = 1; p.recycleY = -0.20f;
+        p.emitMin = make_float3(-0.30f, 0.85f, -0.30f); p.emitMax = make_float3(0.30f, 1.00f, 0.30f);
+        p.emitVel = make_float3(0.f, 0.f, 0.f);
+        auto pos = lattice(make_float3(-0.30f, 0.05f, -0.30f), make_float3(0.30f, 0.45f, 0.30f), 0.045f);
+        int n0 = (int)pos.size();
+        GpuSPH sph; sph.init(pos, p);                                   // no floor → water falls, drains, respawns up top
+        for (int s = 0; s < 500; s++) sph.step(1.5e-3f);
+        std::vector<float3> out; sph.download(out);
+        CHECK((int)out.size() == n0);                                   // fixed-N recirculation conserves count
+        int below = 0, inEmit = 0; bool finite = true;
+        for (auto& q : out) {
+            if (!std::isfinite(q.y)) finite = false;
+            if (q.y < p.recycleY - 1e-2f) below++;
+            if (q.y > p.emitMin.y - 0.05f && q.x > p.emitMin.x - 0.05f && q.x < p.emitMax.x + 0.05f) inEmit++;
+        }
+        CHECK(finite);
+        CHECK(below == 0);                                              // drained particles are teleported, never left below
+        CHECK(inEmit > 0);                                              // some have respawned at the source
+        sph.free();
+    }
+
+    // F) cohesion (surface tension): a free blob in zero-g holds together more tightly with
+    //    surfTens>0 — its radius of gyration is smaller than the same run without cohesion.
+    {
+        Params p = baseParams(0.10f);
+        p.gmin = make_float3(-2, -2, -2); p.gmax = make_float3(2, 2, 2);
+        p.grav = make_float3(0, 0, 0); p.visc = 1.f;
+        auto blob = lattice(make_float3(-0.12f, -0.12f, -0.12f), make_float3(0.12f, 0.12f, 0.12f), 0.04f);
+        auto radiusGyration = [&](float st) {
+            Params pp = p; pp.surfTens = st; GpuSPH s; s.init(blob, pp);
+            for (int k = 0; k < 90; k++) s.step(8.0e-4f);
+            std::vector<float3> o; s.download(o); s.free();
+            float3 c = make_float3(0, 0, 0); for (auto& q : o) c = c + q; c = c * (1.0f / o.size());
+            double rg = 0; for (auto& q : o) { float3 d = q - c; rg += dot3(d, d); } return std::sqrt(rg / o.size());
+        };
+        double rgNo = radiusGyration(0.f), rgCoh = radiusGyration(400.f);
+        CHECK(rgNo > 0);
+        CHECK(rgCoh < rgNo - 0.003);                                    // cohesion keeps the blob more compact
+    }
+
     return test::report("gpu");
 }
